@@ -573,6 +573,32 @@ main {
   }
 }
 
+/* ---- AUDIO LEVEL INDICATORS ---- */
+
+.audio-level {
+  width: 48px;
+  height: 6px;
+  background: #e7e5e4;
+  border-radius: 3px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.audio-level-bar {
+  height: 100%;
+  width: 0%;
+  border-radius: 3px;
+  transition: width 0.08s ease-out;
+}
+
+.audio-level-local .audio-level-bar {
+  background: var(--online);
+}
+
+.audio-level-remote .audio-level-bar {
+  background: var(--accent);
+}
+
 /* ---- ANIMATIONS ---- */
 
 @keyframes pulse {

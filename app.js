@@ -54,6 +54,14 @@ let knownUsers = {}; // for notification diffing
 let initialLoadDone = false;
 let pendingJoinRoomId = null; // roomId waiting for password modal
 
+// Audio level analysers
+let audioContext = null;
+let localAnalyser = null;
+let localAnalyserSource = null;
+let localAnalyserRaf = null;
+let remoteAnalysers = {}; // peerId → { analyser, source, raf }
+let remoteRafLoop = null;
+
 // Room passwords cached in localStorage
 function getCachedPasswords() {
   try {
@@ -537,6 +545,7 @@ async function joinRoom(roomId) {
       if (isMuted) {
         localStream.getAudioTracks().forEach((t) => { t.enabled = false; });
       }
+      startLocalAnalyser(localStream);
     } catch (err) {
       alert("Impossible d'acceder au micro. Verifie les permissions du navigateur.");
       return;
@@ -575,12 +584,14 @@ function leaveAllRooms() {
   Object.values(connections).forEach((call) => call.close());
   connections = {};
 
+  stopAllAnalysers();
   stopMic();
   audioContainer.innerHTML = "";
   renderRooms();
 }
 
 function stopMic() {
+  stopLocalAnalyser();
   if (localStream) {
     localStream.getTracks().forEach((t) => t.stop());
     localStream = null;
@@ -698,14 +709,154 @@ function addAudio(peerId, stream) {
   audio.id = `audio-${peerId}`;
   audio.srcObject = stream;
   audio.autoplay = true;
+  audio.setAttribute("playsinline", "");
   audioContainer.appendChild(audio);
+  // Explicit play() for mobile autoplay policy
+  audio.play().catch(() => {
+    console.log("[HiSam] autoplay bloque pour", peerId, "— en attente d'un geste utilisateur");
+  });
+
+  // Start remote analyser for this peer
+  startRemoteAnalyser(peerId, stream);
 }
 
+// Global one-shot listener: resume any paused audio on first user gesture (mobile autoplay workaround)
+let autoplayUnlocked = false;
+function unlockAutoplay() {
+  if (autoplayUnlocked) return;
+  autoplayUnlocked = true;
+  document.querySelectorAll("#audio-container audio").forEach((a) => {
+    if (a.paused && a.srcObject) a.play().catch(() => {});
+  });
+  // Also resume AudioContext if suspended
+  if (audioContext && audioContext.state === "suspended") {
+    audioContext.resume();
+  }
+  document.removeEventListener("touchstart", unlockAutoplay);
+  document.removeEventListener("click", unlockAutoplay);
+}
+document.addEventListener("touchstart", unlockAutoplay, { once: true });
+document.addEventListener("click", unlockAutoplay, { once: true });
+
 function removeAudio(peerId) {
+  stopRemoteAnalyser(peerId);
   const el = document.getElementById(`audio-${peerId}`);
   if (el) {
     el.srcObject = null;
     el.remove();
+  }
+}
+
+// ---- Audio Level Analysers ----
+
+function getOrCreateAudioContext() {
+  if (!audioContext) {
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if (audioContext.state === "suspended") {
+    audioContext.resume();
+  }
+  return audioContext;
+}
+
+function getAudioLevel(analyser) {
+  const data = new Uint8Array(analyser.frequencyBinCount);
+  analyser.getByteFrequencyData(data);
+  let sum = 0;
+  for (let i = 0; i < data.length; i++) {
+    sum += data[i];
+  }
+  return sum / (data.length * 255); // 0..1
+}
+
+function startLocalAnalyser(stream) {
+  stopLocalAnalyser();
+  const ctx = getOrCreateAudioContext();
+  localAnalyserSource = ctx.createMediaStreamSource(stream);
+  localAnalyser = ctx.createAnalyser();
+  localAnalyser.fftSize = 256;
+  localAnalyserSource.connect(localAnalyser);
+
+  const bar = document.getElementById("local-level-bar");
+  function loop() {
+    if (!localAnalyser) return;
+    const level = getAudioLevel(localAnalyser);
+    if (bar) bar.style.width = Math.round(level * 100) + "%";
+    localAnalyserRaf = requestAnimationFrame(loop);
+  }
+  loop();
+}
+
+function stopLocalAnalyser() {
+  if (localAnalyserRaf) {
+    cancelAnimationFrame(localAnalyserRaf);
+    localAnalyserRaf = null;
+  }
+  if (localAnalyserSource) {
+    localAnalyserSource.disconnect();
+    localAnalyserSource = null;
+  }
+  localAnalyser = null;
+  const bar = document.getElementById("local-level-bar");
+  if (bar) bar.style.width = "0%";
+}
+
+function startRemoteAnalyser(peerId, stream) {
+  stopRemoteAnalyser(peerId);
+  const ctx = getOrCreateAudioContext();
+  const source = ctx.createMediaStreamSource(stream);
+  const analyser = ctx.createAnalyser();
+  analyser.fftSize = 256;
+  source.connect(analyser);
+  remoteAnalysers[peerId] = { analyser, source };
+
+  // Start the shared remote level loop if not running
+  if (!remoteRafLoop) startRemoteLevelLoop();
+}
+
+function stopRemoteAnalyser(peerId) {
+  const entry = remoteAnalysers[peerId];
+  if (entry) {
+    entry.source.disconnect();
+    delete remoteAnalysers[peerId];
+  }
+  // If no more remote analysers, stop loop and reset bar
+  if (Object.keys(remoteAnalysers).length === 0) {
+    if (remoteRafLoop) {
+      cancelAnimationFrame(remoteRafLoop);
+      remoteRafLoop = null;
+    }
+    const bar = document.getElementById("remote-level-bar");
+    if (bar) bar.style.width = "0%";
+  }
+}
+
+function startRemoteLevelLoop() {
+  const bar = document.getElementById("remote-level-bar");
+  function loop() {
+    if (Object.keys(remoteAnalysers).length === 0) {
+      remoteRafLoop = null;
+      if (bar) bar.style.width = "0%";
+      return;
+    }
+    // Take max level across all remote peers
+    let maxLevel = 0;
+    Object.values(remoteAnalysers).forEach(({ analyser }) => {
+      const level = getAudioLevel(analyser);
+      if (level > maxLevel) maxLevel = level;
+    });
+    if (bar) bar.style.width = Math.round(maxLevel * 100) + "%";
+    remoteRafLoop = requestAnimationFrame(loop);
+  }
+  loop();
+}
+
+function stopAllAnalysers() {
+  stopLocalAnalyser();
+  Object.keys(remoteAnalysers).forEach(stopRemoteAnalyser);
+  if (remoteRafLoop) {
+    cancelAnimationFrame(remoteRafLoop);
+    remoteRafLoop = null;
   }
 }
 
