@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HiSam</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+  <!-- Login -->
+  <div id="login-screen" class="screen">
+    <div class="login-card">
+      <h1>HiSam</h1>
+      <p class="subtitle">Le bureau virtuel</p>
+      <input type="text" id="username-input" placeholder="Ton prenom" autocomplete="off" maxlength="20">
+      <p id="login-error" class="login-error"></p>
+      <button id="login-btn">Entrer</button>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div id="main-screen" class="screen" style="display:none">
+    <header>
+      <div class="header-left">
+        <h1>HiSam</h1>
+        <span class="my-badge" id="my-name"></span>
+      </div>
+      <div class="header-right">
+        <span class="online-count" id="online-count">0 en ligne</span>
+        <button id="notif-btn" title="Activer les notifications">Notifications</button>
+      </div>
+    </header>
+
+    <main>
+      <div class="rooms-header">
+        <h2>Salons</h2>
+        <button id="create-room-btn" class="btn-create-room">+ Creer un salon</button>
+      </div>
+
+      <div id="rooms-list" class="rooms-list">
+        <p class="empty-state">Aucun salon pour l'instant...</p>
+      </div>
+    </main>
+
+    <!-- Active bar (sticky bottom when in >= 1 room) -->
+    <div id="active-bar" class="active-bar" style="display:none">
+      <div class="active-bar-rooms" id="active-bar-rooms"></div>
+      <div class="active-bar-controls">
+        <button id="global-mute-btn" class="btn-mute" title="Couper le micro">
+          <svg id="mic-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>
+          <svg id="mic-off-icon" style="display:none" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="2" x2="22" y1="2" y2="22"/><path d="M18.89 13.23A7.12 7.12 0 0 0 19 12v-2"/><path d="M5 10v2a7 7 0 0 0 12 5"/><path d="M15 9.34V5a3 3 0 0 0-5.68-1.33"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12"/><line x1="12" x2="12" y1="19" y2="22"/></svg>
+        </button>
+        <button id="leave-all-btn" class="btn-leave-all">Tout quitter</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Create Room -->
+  <div id="modal-create" class="modal-overlay" style="display:none">
+    <div class="modal-card">
+      <h3>Creer un salon</h3>
+      <input type="text" id="create-room-name" placeholder="Nom du salon" autocomplete="off" maxlength="40">
+      <input type="password" id="create-room-password" placeholder="Mot de passe du salon" autocomplete="off">
+      <p id="create-room-error" class="modal-error"></p>
+      <div class="modal-actions">
+        <button id="create-room-cancel" class="btn-secondary">Annuler</button>
+        <button id="create-room-confirm" class="btn-primary">Creer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Room Password -->
+  <div id="modal-password" class="modal-overlay" style="display:none">
+    <div class="modal-card">
+      <h3>Mot de passe requis</h3>
+      <p class="modal-subtitle" id="password-room-name"></p>
+      <input type="password" id="room-password-input" placeholder="Mot de passe" autocomplete="off">
+      <p id="room-password-error" class="modal-error"></p>
+      <div class="modal-actions">
+        <button id="password-cancel" class="btn-secondary">Annuler</button>
+        <button id="password-confirm" class="btn-primary">Rejoindre</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Room Settings -->
+  <div id="modal-settings" class="modal-overlay" style="display:none">
+    <div class="modal-card">
+      <h3>Parametres du salon</h3>
+      <p class="modal-subtitle" id="settings-room-name"></p>
+      <label class="modal-label">Nouveau mot de passe</label>
+      <input type="password" id="settings-new-password" placeholder="Nouveau mot de passe" autocomplete="off">
+      <p id="settings-error" class="modal-error"></p>
+      <p id="settings-success" class="modal-success"></p>
+      <div class="modal-actions">
+        <button id="settings-cancel" class="btn-secondary">Fermer</button>
+        <button id="settings-save" class="btn-primary">Sauvegarder</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Audio elements container (hidden) -->
+  <div id="audio-container" style="display:none"></div>
+
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

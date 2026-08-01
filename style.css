@@ -1,0 +1,581 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  --bg: #fafaf9;
+  --card: #ffffff;
+  --text: #1c1917;
+  --text-soft: #78716c;
+  --accent: #0d9488;
+  --accent-light: #ccfbf1;
+  --danger: #ef4444;
+  --danger-light: #fef2f2;
+  --online: #22c55e;
+  --in-room: #0d9488;
+  --radius: 12px;
+  --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
+  --shadow-lg: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+}
+
+/* ---- LOGIN ---- */
+
+#login-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 1rem;
+}
+
+.login-card {
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  padding: 3rem 2.5rem;
+  text-align: center;
+  max-width: 360px;
+  width: 100%;
+}
+
+.login-card h1 {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 0.25rem;
+}
+
+.login-card .subtitle {
+  color: var(--text-soft);
+  font-size: 0.9rem;
+  margin-bottom: 2rem;
+}
+
+.login-card input {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: 1.5px solid #e7e5e4;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.2s;
+  margin-bottom: 1rem;
+}
+
+.login-card input:focus {
+  border-color: var(--accent);
+}
+
+.login-error {
+  color: var(--danger);
+  font-size: 0.85rem;
+  margin-bottom: 0.75rem;
+  min-height: 1.2em;
+}
+
+.login-card button {
+  width: 100%;
+  padding: 0.75rem;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.login-card button:hover {
+  opacity: 0.9;
+}
+
+/* ---- HEADER ---- */
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.5rem;
+  background: var(--card);
+  border-bottom: 1px solid #e7e5e4;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+header h1 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.my-badge {
+  font-size: 0.8rem;
+  background: var(--accent-light);
+  color: var(--accent);
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-weight: 500;
+}
+
+.online-count {
+  font-size: 0.75rem;
+  color: var(--text-soft);
+  background: #f5f5f4;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+}
+
+#notif-btn {
+  font-size: 0.75rem;
+  padding: 0.35rem 0.7rem;
+  border: 1.5px solid #e7e5e4;
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--text-soft);
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+#notif-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+#notif-btn.granted {
+  border-color: var(--accent);
+  background: var(--accent-light);
+  color: var(--accent);
+}
+
+/* ---- MAIN ---- */
+
+main {
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 1.5rem 1rem;
+  padding-bottom: 100px; /* space for active bar */
+}
+
+.rooms-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.rooms-header h2 {
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.btn-create-room {
+  font-size: 0.85rem;
+  padding: 0.4rem 0.8rem;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-family: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.btn-create-room:hover {
+  opacity: 0.9;
+}
+
+/* ---- ROOMS LIST ---- */
+
+.rooms-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.empty-state {
+  text-align: center;
+  color: var(--text-soft);
+  font-size: 0.9rem;
+  padding: 3rem 1rem;
+}
+
+/* ---- ROOM CARD ---- */
+
+.room-card {
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  transition: box-shadow 0.2s;
+  border-left: 3px solid transparent;
+}
+
+.room-card:hover {
+  box-shadow: var(--shadow-lg);
+}
+
+.room-card.room-active {
+  border-left-color: var(--accent);
+}
+
+.room-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  gap: 0.75rem;
+}
+
+.room-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.room-name {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.room-count {
+  font-size: 0.75rem;
+  color: var(--text-soft);
+}
+
+.room-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.btn-room-action {
+  padding: 0.4rem 0.9rem;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.btn-room-action.btn-join {
+  background: var(--accent);
+  color: white;
+}
+
+.btn-room-action.btn-leave {
+  background: var(--danger);
+  color: white;
+}
+
+.btn-room-action:hover {
+  opacity: 0.9;
+}
+
+.btn-room-settings {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1.5px solid #e7e5e4;
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--text-soft);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-room-settings:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.room-members {
+  padding: 0 1.25rem 0.75rem;
+  font-size: 0.8rem;
+  color: var(--text-soft);
+  line-height: 1.4;
+}
+
+/* ---- ACTIVE BAR (sticky bottom) ---- */
+
+.active-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--card);
+  border-top: 1px solid #e7e5e4;
+  box-shadow: 0 -2px 8px rgba(0,0,0,0.06);
+  padding: 0.75rem 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  z-index: 20;
+}
+
+.active-bar-rooms {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.active-room-pill {
+  font-size: 0.75rem;
+  background: var(--accent-light);
+  color: var(--accent);
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.active-bar-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.btn-mute {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: 1.5px solid #e7e5e4;
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-mute:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.btn-mute.muted {
+  background: var(--danger-light);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.btn-leave-all {
+  padding: 0.5rem 0.8rem;
+  background: var(--danger);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.btn-leave-all:hover {
+  opacity: 0.9;
+}
+
+/* ---- MODALS ---- */
+
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0,0,0,0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 1rem;
+}
+
+.modal-card {
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  padding: 2rem;
+  max-width: 380px;
+  width: 100%;
+}
+
+.modal-card h3 {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin-bottom: 0.25rem;
+}
+
+.modal-subtitle {
+  font-size: 0.85rem;
+  color: var(--text-soft);
+  margin-bottom: 1.25rem;
+}
+
+.modal-label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-soft);
+  margin-bottom: 0.4rem;
+}
+
+.modal-card input {
+  width: 100%;
+  padding: 0.65rem 0.9rem;
+  border: 1.5px solid #e7e5e4;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.2s;
+  margin-bottom: 0.75rem;
+}
+
+.modal-card input:focus {
+  border-color: var(--accent);
+}
+
+.modal-error {
+  color: var(--danger);
+  font-size: 0.8rem;
+  min-height: 1em;
+  margin-bottom: 0.5rem;
+}
+
+.modal-success {
+  color: var(--accent);
+  font-size: 0.8rem;
+  min-height: 1em;
+  margin-bottom: 0.5rem;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  margin-top: 0.5rem;
+}
+
+.btn-primary {
+  padding: 0.55rem 1.1rem;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.btn-primary:hover {
+  opacity: 0.9;
+}
+
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  padding: 0.55rem 1.1rem;
+  background: transparent;
+  color: var(--text-soft);
+  border: 1.5px solid #e7e5e4;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-secondary:hover {
+  border-color: var(--text-soft);
+}
+
+/* ---- RESPONSIVE ---- */
+
+@media (max-width: 480px) {
+  .login-card {
+    padding: 2rem 1.5rem;
+  }
+
+  header {
+    padding: 0.75rem 1rem;
+  }
+
+  .header-right {
+    gap: 0.35rem;
+  }
+
+  main {
+    padding: 1rem 0.75rem;
+    padding-bottom: 90px;
+  }
+
+  .room-card-header {
+    padding: 0.85rem 1rem;
+  }
+
+  .room-members {
+    padding: 0 1rem 0.65rem;
+  }
+
+  .active-bar {
+    padding: 0.6rem 0.75rem;
+  }
+
+  .modal-card {
+    padding: 1.5rem;
+  }
+}
+
+/* ---- ANIMATIONS ---- */
+
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.15); }
+  50% { box-shadow: 0 0 0 6px rgba(13, 148, 136, 0.08); }
+}
