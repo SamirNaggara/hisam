@@ -415,6 +415,29 @@ main {
   opacity: 0.9;
 }
 
+.mic-select {
+  font-size: 0.75rem;
+  font-family: inherit;
+  font-weight: 500;
+  padding: 0.3rem 0.5rem;
+  border: 1.5px solid #e7e5e4;
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--text);
+  cursor: pointer;
+  outline: none;
+  max-width: 140px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: border-color 0.2s;
+}
+
+.mic-select:hover,
+.mic-select:focus {
+  border-color: var(--accent);
+}
+
 /* ---- MODALS ---- */
 
 .modal-overlay {
@@ -570,6 +593,11 @@ main {
 
   .audio-indicator-label {
     display: none;
+  }
+
+  .mic-select {
+    max-width: 100px;
+    font-size: 0.7rem;
   }
 
   .modal-card {

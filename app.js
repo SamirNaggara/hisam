@@ -97,6 +97,7 @@ const globalMuteBtn = document.getElementById("global-mute-btn");
 const micIcon = document.getElementById("mic-icon");
 const micOffIcon = document.getElementById("mic-off-icon");
 const leaveAllBtn = document.getElementById("leave-all-btn");
+const micSelect = document.getElementById("mic-select");
 
 // Modal: Create Room
 const modalCreate = document.getElementById("modal-create");
@@ -541,14 +542,30 @@ async function joinRoom(roomId) {
   // Start mic if not already streaming
   if (!localStream) {
     try {
-      localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const savedMicId = localStorage.getItem("hisam-mic-id");
+      const audioConstraints = savedMicId
+        ? { deviceId: { exact: savedMicId } }
+        : true;
+      localStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
       if (isMuted) {
         localStream.getAudioTracks().forEach((t) => { t.enabled = false; });
       }
       startLocalAnalyser(localStream);
+      populateMicSelect();
     } catch (err) {
-      alert("Impossible d'acceder au micro. Verifie les permissions du navigateur.");
-      return;
+      // If exact deviceId fails, fallback to default
+      try {
+        localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        if (isMuted) {
+          localStream.getAudioTracks().forEach((t) => { t.enabled = false; });
+        }
+        startLocalAnalyser(localStream);
+        localStorage.removeItem("hisam-mic-id");
+        populateMicSelect();
+      } catch (err2) {
+        alert("Impossible d'acceder au micro. Verifie les permissions du navigateur.");
+        return;
+      }
     }
   }
 
@@ -557,6 +574,113 @@ async function joinRoom(roomId) {
 
   renderRooms();
   connectToPeersInRoom(roomId);
+}
+
+// ---- Microphone selector ----
+async function populateMicSelect() {
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const mics = devices.filter((d) => d.kind === "audioinput");
+    const savedMicId = localStorage.getItem("hisam-mic-id");
+
+    // Keep the default option, replace the rest
+    micSelect.innerHTML = '<option value="">Micro par defaut</option>';
+    mics.forEach((mic) => {
+      const option = document.createElement("option");
+      option.value = mic.deviceId;
+      option.textContent = mic.label || `Micro ${mic.deviceId.slice(0, 6)}`;
+      if (mic.deviceId === savedMicId) option.selected = true;
+      micSelect.appendChild(option);
+    });
+
+    // Only show selector when there are multiple mics
+    micSelect.style.display = mics.length > 1 ? "" : "none";
+  } catch (err) {
+    console.warn("[HiSam] Impossible d'enumerer les micros:", err);
+  }
+}
+
+async function switchMicrophone(deviceId) {
+  try {
+    const audioConstraints = deviceId
+      ? { deviceId: { exact: deviceId } }
+      : true;
+    const newStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
+
+    // Stop old tracks
+    if (localStream) {
+      localStream.getTracks().forEach((t) => t.stop());
+    }
+
+    // Apply mute state
+    if (isMuted) {
+      newStream.getAudioTracks().forEach((t) => { t.enabled = false; });
+    }
+
+    localStream = newStream;
+
+    // Replace track in all active PeerJS connections
+    const newTrack = localStream.getAudioTracks()[0];
+    Object.values(connections).forEach((call) => {
+      if (call.peerConnection) {
+        const senders = call.peerConnection.getSenders();
+        const audioSender = senders.find((s) => s.track && s.track.kind === "audio");
+        if (audioSender) {
+          audioSender.replaceTrack(newTrack);
+        }
+      }
+    });
+
+    // Restart local analyser
+    startLocalAnalyser(localStream);
+  } catch (err) {
+    console.warn("[HiSam] Erreur changement de micro, fallback defaut:", err);
+    // Fallback to default mic
+    localStorage.removeItem("hisam-mic-id");
+    micSelect.value = "";
+    try {
+      const fallbackStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (localStream) {
+        localStream.getTracks().forEach((t) => t.stop());
+      }
+      if (isMuted) {
+        fallbackStream.getAudioTracks().forEach((t) => { t.enabled = false; });
+      }
+      localStream = fallbackStream;
+      const newTrack = localStream.getAudioTracks()[0];
+      Object.values(connections).forEach((call) => {
+        if (call.peerConnection) {
+          const senders = call.peerConnection.getSenders();
+          const audioSender = senders.find((s) => s.track && s.track.kind === "audio");
+          if (audioSender) {
+            audioSender.replaceTrack(newTrack);
+          }
+        }
+      });
+      startLocalAnalyser(localStream);
+    } catch (err2) {
+      console.error("[HiSam] Impossible de revenir au micro par defaut:", err2);
+    }
+  }
+}
+
+micSelect.addEventListener("change", () => {
+  const deviceId = micSelect.value;
+  if (deviceId) {
+    localStorage.setItem("hisam-mic-id", deviceId);
+  } else {
+    localStorage.removeItem("hisam-mic-id");
+  }
+  if (localStream) {
+    switchMicrophone(deviceId);
+  }
+});
+
+// Refresh mic list when devices change (plug/unplug)
+if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
+  navigator.mediaDevices.addEventListener("devicechange", () => {
+    if (localStream) populateMicSelect();
+  });
 }
 
 function leaveRoom(roomId) {
