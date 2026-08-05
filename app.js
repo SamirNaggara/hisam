@@ -61,6 +61,7 @@ let localAnalyserSource = null;
 let localAnalyserRaf = null;
 let remoteAnalysers = {}; // peerId → { analyser, source, raf }
 let remoteRafLoop = null;
+let faviconBlinkInterval = null;
 
 // Room passwords cached in localStorage
 function getCachedPasswords() {
@@ -164,6 +165,7 @@ function startApp() {
   setupPeer();
   listenToRooms();
   listenToUsers();
+  drawFavicon(false);
 }
 
 // ---- Notifications permission ----
@@ -1045,6 +1047,8 @@ function cleanupConnections() {
 function notify(message, type) {
   playSound(type);
 
+  if (document.hidden) startFaviconBlink();
+
   if ("Notification" in window && Notification.permission === "granted") {
     new Notification("HiSam", { body: message, tag: "hisam-" + Date.now() });
   }
@@ -1097,6 +1101,59 @@ function escapeHtml(str) {
   div.textContent = str;
   return div.innerHTML;
 }
+
+// ---- Favicon ----
+function drawFavicon(badge) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 32;
+  canvas.height = 32;
+  const ctx = canvas.getContext("2d");
+
+  // Cercle de fond violet
+  ctx.beginPath();
+  ctx.arc(16, 16, 16, 0, 2 * Math.PI);
+  ctx.fillStyle = "#6c5ce7";
+  ctx.fill();
+
+  // Lettre "H" blanche
+  ctx.fillStyle = "#fff";
+  ctx.font = "bold 20px sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("H", 16, 17);
+
+  // Badge rouge
+  if (badge) {
+    ctx.beginPath();
+    ctx.arc(26, 6, 6, 0, 2 * Math.PI);
+    ctx.fillStyle = "#e74c3c";
+    ctx.fill();
+  }
+
+  document.getElementById("favicon").href = canvas.toDataURL("image/png");
+}
+
+function startFaviconBlink() {
+  if (faviconBlinkInterval) return;
+  let showBadge = true;
+  drawFavicon(true);
+  faviconBlinkInterval = setInterval(() => {
+    showBadge = !showBadge;
+    drawFavicon(showBadge);
+  }, 600);
+}
+
+function stopFaviconBlink() {
+  if (faviconBlinkInterval) {
+    clearInterval(faviconBlinkInterval);
+    faviconBlinkInterval = null;
+  }
+  drawFavicon(false);
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) stopFaviconBlink();
+});
 
 // ---- Cleanup on close ----
 window.addEventListener("beforeunload", () => {
