@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HiSam Widget</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      height: 100%;
+      font-family: 'Inter', system-ui, sans-serif;
+      background: transparent;
+    }
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 8px;
+    }
+    a.widget {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 16px;
+      border-radius: 10px;
+      text-decoration: none;
+      color: inherit;
+      background: #fff;
+      border: 1px solid #e7e5e4;
+      transition: box-shadow 0.2s, border-color 0.2s;
+      width: 100%;
+      max-width: 360px;
+    }
+    a.widget:hover {
+      border-color: #d6d3d1;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    a.widget.active {
+      border-color: #99f6e4;
+      background: #f0fdfa;
+    }
+    a.widget.active:hover {
+      border-color: #5eead4;
+      box-shadow: 0 2px 8px rgba(13,148,136,0.12);
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      background: #d6d3d1;
+    }
+    .dot.in-room {
+      background: #0d9488;
+      box-shadow: 0 0 0 3px rgba(13,148,136,0.18);
+      animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%,100% { box-shadow: 0 0 0 3px rgba(13,148,136,0.18); }
+      50% { box-shadow: 0 0 0 6px rgba(13,148,136,0.06); }
+    }
+
+    .info {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      min-width: 0;
+    }
+    .name {
+      font-weight: 600;
+      font-size: 0.85rem;
+      color: #1c1917;
+    }
+    .status {
+      font-size: 0.72rem;
+      color: #a8a29e;
+    }
+    .active .status {
+      color: #0d9488;
+      font-weight: 500;
+    }
+
+    .arrow {
+      margin-left: auto;
+      flex-shrink: 0;
+      color: #d6d3d1;
+      transition: color 0.2s;
+    }
+    .active .arrow { color: #5eead4; }
+    a.widget:hover .arrow { color: #0d9488; }
+
+    .loading {
+      font-size: 0.8rem;
+      color: #a8a29e;
+    }
+    .error {
+      font-size: 0.8rem;
+      color: #ef4444;
+    }
+  </style>
+</head>
+<body>
+
+  <span class="loading" id="loading">Chargement...</span>
+
+  <a class="widget" id="widget" style="display:none" href="#" target="_top">
+    <span class="dot" id="dot"></span>
+    <div class="info">
+      <span class="name" id="w-name"></span>
+      <span class="status" id="w-status">Hors ligne</span>
+    </div>
+    <svg class="arrow" id="arrow" width="16" height="16" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+      style="display:none">
+      <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
+    </svg>
+  </a>
+
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
+  <script>
+    const FIREBASE_CONFIG = {
+      apiKey: "AIzaSyAnMeev1Im_FRV1j7AHE7ikUSEbisQ_Wpo",
+      authDomain: "hisam-5b58f.firebaseapp.com",
+      databaseURL: "https://hisam-5b58f-default-rtdb.europe-west1.firebasedatabase.app",
+      projectId: "hisam-5b58f",
+    };
+
+    // Get target username from URL: widget.html#Sam or widget.html?user=Sam
+    const params = new URLSearchParams(location.search);
+    const targetName = params.get("user") || decodeURIComponent(location.hash.slice(1));
+
+    if (!targetName) {
+      document.getElementById("loading").textContent = "Ajoute un nom: widget.html#Sam";
+      document.getElementById("loading").className = "error";
+    } else {
+      firebase.initializeApp(FIREBASE_CONFIG);
+      const db = firebase.database();
+
+      let allRooms = {};
+      let allUsers = {};
+
+      // Base URL: same origin, index.html
+      const baseUrl = location.href.replace(/widget\.html.*$/, "index.html");
+
+      function render() {
+        const loading = document.getElementById("loading");
+        const widget = document.getElementById("widget");
+        const dot = document.getElementById("dot");
+        const wName = document.getElementById("w-name");
+        const wStatus = document.getElementById("w-status");
+        const arrow = document.getElementById("arrow");
+
+        // Find user by name (case-insensitive)
+        const userEntry = Object.entries(allUsers).find(
+          ([, u]) => u.name && u.name.toLowerCase() === targetName.toLowerCase()
+        );
+
+        loading.style.display = "none";
+        widget.style.display = "flex";
+
+        wName.textContent = targetName;
+
+        if (!userEntry || !userEntry[1].online) {
+          // Offline
+          widget.classList.remove("active");
+          dot.className = "dot";
+          wStatus.textContent = "Hors ligne";
+          widget.href = "#";
+          arrow.style.display = "none";
+          return;
+        }
+
+        const [, user] = userEntry;
+        const activeRoomIds = user.activeRooms ? Object.keys(user.activeRooms) : [];
+
+        // Find rooms they're actually in
+        const roomNames = activeRoomIds
+          .filter(id => allRooms[id])
+          .map(id => ({ id, name: allRooms[id].name }));
+
+        if (roomNames.length === 0) {
+          // Online but not in a room
+          widget.classList.remove("active");
+          dot.className = "dot";
+          wStatus.textContent = "En ligne, pas dans un salon";
+          widget.href = "#";
+          arrow.style.display = "none";
+          return;
+        }
+
+        // In a room!
+        widget.classList.add("active");
+        dot.className = "dot in-room";
+        arrow.style.display = "block";
+
+        if (roomNames.length === 1) {
+          wStatus.textContent = "Dans " + roomNames[0].name;
+          widget.href = baseUrl + "#join=" + roomNames[0].id;
+        } else {
+          wStatus.textContent = "Dans " + roomNames.map(r => r.name).join(", ");
+          // Link to the first room
+          widget.href = baseUrl + "#join=" + roomNames[0].id;
+        }
+      }
+
+      db.ref("rooms").on("value", (snap) => {
+        allRooms = snap.val() || {};
+        render();
+      });
+
+      db.ref("users").on("value", (snap) => {
+        allUsers = snap.val() || {};
+        render();
+      });
+    }
+  </script>
+</body>
+</html>

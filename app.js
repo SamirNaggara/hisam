@@ -166,6 +166,24 @@ function startApp() {
   listenToRooms();
   listenToUsers();
   drawFavicon(false);
+  handleDeepLink();
+}
+
+// ---- Deep link: #join=roomId ----
+function handleDeepLink() {
+  const hash = location.hash;
+  if (!hash.startsWith("#join=")) return;
+  const roomId = hash.slice(6);
+  if (!roomId) return;
+  // Clear hash so it doesn't re-trigger on reload
+  history.replaceState(null, "", location.pathname + location.search);
+  // Wait for rooms to load, then auto-join
+  const unsubscribe = db.ref("rooms/" + roomId).on("value", (snap) => {
+    if (snap.val()) {
+      db.ref("rooms/" + roomId).off("value", unsubscribe);
+      tryJoinRoom(roomId);
+    }
+  });
 }
 
 // ---- Notifications permission ----
