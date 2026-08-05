@@ -172,6 +172,7 @@ function startApp() {
   listenToUsers();
   drawFavicon(false);
   handleDeepLink();
+  handleAutoRejoin();
 }
 
 // ---- Deep link: #join=roomId ----
@@ -189,6 +190,53 @@ function handleDeepLink() {
       tryJoinRoom(roomId);
     }
   });
+}
+
+// ---- Auto-rejoin after refresh ----
+const REJOIN_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
+
+function handleAutoRejoin() {
+  try {
+    const saved = JSON.parse(localStorage.getItem("hisam-active-session") || "null");
+    if (!saved) return;
+    localStorage.removeItem("hisam-active-session");
+
+    const age = Date.now() - saved.ts;
+    if (age > REJOIN_TIMEOUT_MS || !saved.rooms || saved.rooms.length === 0) return;
+
+    // Wait for rooms to load from Firebase, then auto-rejoin
+    const unsubscribe = db.ref("rooms").on("value", (snap) => {
+      const rooms = snap.val() || {};
+      const validRooms = saved.rooms.filter((roomId) => rooms[roomId]);
+      if (Object.keys(rooms).length === 0) return; // still loading
+      db.ref("rooms").off("value", unsubscribe);
+
+      if (validRooms.length === 0) return;
+      validRooms.forEach((roomId) => {
+        // Check password cache before rejoining
+        const cached = getCachedPasswords();
+        if (cached[roomId] && cached[roomId] === rooms[roomId].passwordHash) {
+          joinRoom(roomId);
+        }
+      });
+    });
+  } catch {
+    localStorage.removeItem("hisam-active-session");
+  }
+}
+
+function saveSessionForRejoin() {
+  const allMyRoomIds = [...new Set([...Object.keys(myActiveRooms), ...Object.keys(inheritedRooms)])];
+  if (allMyRoomIds.length > 0) {
+    localStorage.setItem("hisam-active-session", JSON.stringify({
+      rooms: allMyRoomIds,
+      ts: Date.now(),
+    }));
+  }
+}
+
+function clearSessionForRejoin() {
+  localStorage.removeItem("hisam-active-session");
 }
 
 // ---- Notifications permission ----
@@ -766,6 +814,11 @@ function leaveRoom(roomId) {
     stopMic();
   }
 
+  // Clear auto-rejoin if no rooms left anywhere
+  if (Object.keys(myActiveRooms).length === 0 && Object.keys(inheritedRooms).length === 0) {
+    clearSessionForRejoin();
+  }
+
   renderRooms();
 }
 
@@ -777,6 +830,7 @@ function leaveAllRooms() {
   });
   myActiveRooms = {};
   inheritedRooms = {};
+  clearSessionForRejoin();
 
   // Close all connections
   Object.values(connections).forEach((call) => call.close());
@@ -1239,6 +1293,9 @@ document.addEventListener("visibilitychange", () => {
 
 // ---- Cleanup on close ----
 window.addEventListener("beforeunload", () => {
+  // Save session so we can auto-rejoin on refresh
+  saveSessionForRejoin();
+
   // Remove only rooms THIS tab joined (not inherited from other tabs)
   Object.keys(myActiveRooms).forEach((roomId) => {
     db.ref(`users/${myId}/activeRooms/${roomId}`).remove();
