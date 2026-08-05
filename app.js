@@ -47,7 +47,7 @@ let peer = null;
 let localStream = null;
 let isMuted = false;
 let connections = {}; // peerId → MediaConnection
-let myActiveRooms = {}; // roomId → true (rooms I'm currently in)
+let myActiveRooms = {}; // roomId → true (rooms this TAB joined)
 let allRooms = {}; // roomId → { name, passwordHash, createdAt, createdBy }
 let allUsers = {}; // userId → { name, online, activeRooms, ts }
 let knownUsers = {}; // for notification diffing
@@ -213,13 +213,33 @@ function setupPresence() {
 
   connectedRef.on("value", (snap) => {
     if (snap.val() === true) {
-      userRef.set({
+      // Use update (not set) to preserve activeRooms from other tabs
+      userRef.update({
         name: myName,
         online: true,
-        activeRooms: myActiveRooms,
         ts: firebase.database.ServerValue.TIMESTAMP,
       });
       userRef.onDisconnect().remove();
+    }
+  });
+
+  // Re-register if our entry is deleted by another tab's onDisconnect
+  let reRegistering = false;
+  userRef.on("value", (snap) => {
+    if (!snap.val() && myName && !reRegistering) {
+      reRegistering = true;
+      userRef.update({
+        name: myName,
+        online: true,
+        ts: firebase.database.ServerValue.TIMESTAMP,
+      }).then(() => {
+        userRef.onDisconnect().remove();
+        // Re-add rooms this tab has joined
+        Object.keys(myActiveRooms).forEach((roomId) => {
+          db.ref(`users/${myId}/activeRooms/${roomId}`).set(true);
+        });
+        reRegistering = false;
+      });
     }
   });
 }
@@ -591,7 +611,8 @@ async function joinRoom(roomId) {
   }
 
   myActiveRooms[roomId] = true;
-  await db.ref(`users/${myId}/activeRooms`).set(myActiveRooms);
+  // Write only this room (don't overwrite other tabs' rooms)
+  await db.ref(`users/${myId}/activeRooms/${roomId}`).set(true);
 
   renderRooms();
   connectToPeersInRoom(roomId);
@@ -706,14 +727,13 @@ if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
 
 function leaveRoom(roomId) {
   delete myActiveRooms[roomId];
-  db.ref(`users/${myId}/activeRooms`).set(
-    Object.keys(myActiveRooms).length > 0 ? myActiveRooms : null
-  );
+  // Remove only this room (don't touch other tabs' rooms)
+  db.ref(`users/${myId}/activeRooms/${roomId}`).remove();
 
   // Close connections with peers we no longer share any room with
   cleanupConnections();
 
-  // If no more active rooms, stop mic
+  // If no more active rooms in this tab, stop mic
   if (Object.keys(myActiveRooms).length === 0) {
     stopMic();
   }
@@ -722,8 +742,11 @@ function leaveRoom(roomId) {
 }
 
 function leaveAllRooms() {
+  // Remove only rooms this tab joined (don't touch other tabs' rooms)
+  Object.keys(myActiveRooms).forEach((roomId) => {
+    db.ref(`users/${myId}/activeRooms/${roomId}`).remove();
+  });
   myActiveRooms = {};
-  db.ref(`users/${myId}/activeRooms`).set(null);
 
   // Close all connections
   Object.values(connections).forEach((call) => call.close());
@@ -1183,6 +1206,31 @@ document.addEventListener("visibilitychange", () => {
 
 // ---- Cleanup on close ----
 window.addEventListener("beforeunload", () => {
-  leaveAllRooms();
-  db.ref(`users/${myId}`).remove();
+  // Remove only rooms this tab joined
+  const tabRoomIds = Object.keys(myActiveRooms);
+  tabRoomIds.forEach((roomId) => {
+    db.ref(`users/${myId}/activeRooms/${roomId}`).remove();
+  });
+
+  // Close audio connections
+  Object.values(connections).forEach((call) => call.close());
+  if (localStream) {
+    localStream.getTracks().forEach((t) => t.stop());
+  }
+
+  // Check if other tabs still have rooms (via Firebase allUsers cache)
+  const myUser = allUsers[myId];
+  const allMyRooms = myUser?.activeRooms || {};
+  const otherTabsHaveRooms = Object.keys(allMyRooms).some(
+    (roomId) => !myActiveRooms[roomId]
+  );
+
+  if (otherTabsHaveRooms) {
+    // Other tabs still active — cancel this tab's onDisconnect
+    db.ref(`users/${myId}`).onDisconnect().cancel();
+    // Re-set onDisconnect to only remove if fully gone (other tab will re-register)
+  } else {
+    // No other tabs with rooms — remove user entirely
+    db.ref(`users/${myId}`).remove();
+  }
 });
