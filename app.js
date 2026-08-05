@@ -53,6 +53,11 @@ let allUsers = {}; // userId → { name, online, activeRooms, ts }
 let knownUsers = {}; // for notification diffing
 let initialLoadDone = false;
 let pendingJoinRoomId = null; // roomId waiting for password modal
+let inheritedRooms = {}; // roomId → true (rooms from other tabs, display only)
+
+function isInRoom(roomId) {
+  return !!myActiveRooms[roomId] || !!inheritedRooms[roomId];
+}
 
 // Audio level analysers
 let audioContext = null;
@@ -220,6 +225,11 @@ function setupPresence() {
         ts: firebase.database.ServerValue.TIMESTAMP,
       });
       userRef.onDisconnect().remove();
+
+      // Re-write this tab's rooms (may have been lost by onDisconnect)
+      Object.keys(myActiveRooms).forEach((roomId) => {
+        db.ref(`users/${myId}/activeRooms/${roomId}`).set(true);
+      });
     }
   });
 
@@ -301,6 +311,22 @@ function listenToUsers() {
     if (!initialLoadDone) initialLoadDone = true;
 
     allUsers = users;
+
+    // Sync inherited rooms from Firebase (multi-tab support)
+    const myFirebaseRooms = allUsers[myId]?.activeRooms || {};
+    // Add rooms from other tabs
+    Object.keys(myFirebaseRooms).forEach((roomId) => {
+      if (!myActiveRooms[roomId] && !inheritedRooms[roomId]) {
+        inheritedRooms[roomId] = true;
+      }
+    });
+    // Remove inherited rooms no longer in Firebase
+    Object.keys(inheritedRooms).forEach((roomId) => {
+      if (!myFirebaseRooms[roomId]) {
+        delete inheritedRooms[roomId];
+      }
+    });
+
     renderRooms();
     updateOnlineCount();
     syncConnections();
@@ -323,8 +349,8 @@ function renderRooms() {
 
   // Sort: rooms I'm in first, then by name
   roomEntries.sort((a, b) => {
-    const aActive = !!myActiveRooms[a[0]];
-    const bActive = !!myActiveRooms[b[0]];
+    const aActive = isInRoom(a[0]);
+    const bActive = isInRoom(b[0]);
     if (aActive && !bActive) return -1;
     if (!aActive && bActive) return 1;
     return a[1].name.localeCompare(b[1].name);
@@ -334,7 +360,7 @@ function renderRooms() {
     .map(([roomId, room]) => {
       const members = getRoomMembers(roomId);
       const memberNames = members.map((u) => escapeHtml(u.name)).join(", ");
-      const isActive = !!myActiveRooms[roomId];
+      const isActive = isInRoom(roomId);
 
       return `
       <div class="room-card ${isActive ? "room-active" : ""}">
@@ -361,7 +387,7 @@ function renderRooms() {
   roomsList.querySelectorAll(".btn-room-action").forEach((btn) => {
     btn.addEventListener("click", () => {
       const roomId = btn.dataset.roomId;
-      if (myActiveRooms[roomId]) {
+      if (isInRoom(roomId)) {
         leaveRoom(roomId);
       } else {
         tryJoinRoom(roomId);
@@ -611,6 +637,7 @@ async function joinRoom(roomId) {
   }
 
   myActiveRooms[roomId] = true;
+  delete inheritedRooms[roomId]; // Promote from inherited to own
   // Write only this room (don't overwrite other tabs' rooms)
   await db.ref(`users/${myId}/activeRooms/${roomId}`).set(true);
 
@@ -727,7 +754,8 @@ if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
 
 function leaveRoom(roomId) {
   delete myActiveRooms[roomId];
-  // Remove only this room (don't touch other tabs' rooms)
+  delete inheritedRooms[roomId];
+  // Remove only this room from Firebase
   db.ref(`users/${myId}/activeRooms/${roomId}`).remove();
 
   // Close connections with peers we no longer share any room with
@@ -742,11 +770,13 @@ function leaveRoom(roomId) {
 }
 
 function leaveAllRooms() {
-  // Remove only rooms this tab joined (don't touch other tabs' rooms)
-  Object.keys(myActiveRooms).forEach((roomId) => {
+  // Remove all rooms (own + inherited)
+  const allMyRoomIds = [...new Set([...Object.keys(myActiveRooms), ...Object.keys(inheritedRooms)])];
+  allMyRoomIds.forEach((roomId) => {
     db.ref(`users/${myId}/activeRooms/${roomId}`).remove();
   });
   myActiveRooms = {};
+  inheritedRooms = {};
 
   // Close all connections
   Object.values(connections).forEach((call) => call.close());
@@ -770,7 +800,7 @@ function stopMic() {
 
 // ---- Active Bar ----
 function updateActiveBar() {
-  const activeRoomIds = Object.keys(myActiveRooms);
+  const activeRoomIds = [...new Set([...Object.keys(myActiveRooms), ...Object.keys(inheritedRooms)])];
 
   if (activeRoomIds.length === 0) {
     activeBar.style.display = "none";
@@ -840,7 +870,10 @@ function setupPeer() {
 
   peer.on("error", (err) => {
     console.warn("[HiSam] PeerJS error:", err.type, err.message);
-    if (err.type === "unavailable-id" || err.type === "network") {
+    if (err.type === "unavailable-id") {
+      // Another tab already has this PeerJS ID — don't retry endlessly
+      console.log("[HiSam] Audio actif dans un autre onglet");
+    } else if (err.type === "network") {
       setTimeout(() => peer.reconnect(), 3000);
     }
   });
@@ -1206,9 +1239,8 @@ document.addEventListener("visibilitychange", () => {
 
 // ---- Cleanup on close ----
 window.addEventListener("beforeunload", () => {
-  // Remove only rooms this tab joined
-  const tabRoomIds = Object.keys(myActiveRooms);
-  tabRoomIds.forEach((roomId) => {
+  // Remove only rooms THIS tab joined (not inherited from other tabs)
+  Object.keys(myActiveRooms).forEach((roomId) => {
     db.ref(`users/${myId}/activeRooms/${roomId}`).remove();
   });
 
@@ -1218,17 +1250,12 @@ window.addEventListener("beforeunload", () => {
     localStream.getTracks().forEach((t) => t.stop());
   }
 
-  // Check if other tabs still have rooms (via Firebase allUsers cache)
-  const myUser = allUsers[myId];
-  const allMyRooms = myUser?.activeRooms || {};
-  const otherTabsHaveRooms = Object.keys(allMyRooms).some(
-    (roomId) => !myActiveRooms[roomId]
-  );
+  // Check if other tabs still have rooms
+  const hasInheritedRooms = Object.keys(inheritedRooms).length > 0;
 
-  if (otherTabsHaveRooms) {
+  if (hasInheritedRooms) {
     // Other tabs still active — cancel this tab's onDisconnect
     db.ref(`users/${myId}`).onDisconnect().cancel();
-    // Re-set onDisconnect to only remove if fully gone (other tab will re-register)
   } else {
     // No other tabs with rooms — remove user entirely
     db.ref(`users/${myId}`).remove();
