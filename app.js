@@ -195,7 +195,7 @@ function handleDeepLink() {
 // ---- Auto-rejoin after refresh ----
 const REJOIN_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
 
-function handleAutoRejoin() {
+async function handleAutoRejoin() {
   try {
     const saved = JSON.parse(localStorage.getItem("hisam-active-session") || "null");
     if (!saved) return;
@@ -204,23 +204,21 @@ function handleAutoRejoin() {
     const age = Date.now() - saved.ts;
     if (age > REJOIN_TIMEOUT_MS || !saved.rooms || saved.rooms.length === 0) return;
 
-    // Wait for rooms to load from Firebase, then auto-rejoin
-    const unsubscribe = db.ref("rooms").on("value", (snap) => {
-      const rooms = snap.val() || {};
-      const validRooms = saved.rooms.filter((roomId) => rooms[roomId]);
-      if (Object.keys(rooms).length === 0) return; // still loading
-      db.ref("rooms").off("value", unsubscribe);
+    const snap = await db.ref("rooms").once("value");
+    const rooms = snap.val() || {};
+    const cached = getCachedPasswords();
 
-      if (validRooms.length === 0) return;
-      validRooms.forEach((roomId) => {
-        // Check password cache before rejoining
-        const cached = getCachedPasswords();
-        if (cached[roomId] && cached[roomId] === rooms[roomId].passwordHash) {
-          joinRoom(roomId);
+    for (const roomId of saved.rooms) {
+      if (rooms[roomId] && cached[roomId] && cached[roomId] === rooms[roomId].passwordHash) {
+        try {
+          await joinRoom(roomId);
+        } catch (e) {
+          console.warn("[HiSam] Auto-rejoin echoue pour", roomId, e);
         }
-      });
-    });
-  } catch {
+      }
+    }
+  } catch (e) {
+    console.warn("[HiSam] Auto-rejoin error:", e);
     localStorage.removeItem("hisam-active-session");
   }
 }
