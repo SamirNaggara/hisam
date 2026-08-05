@@ -54,6 +54,7 @@ let knownUsers = {}; // for notification diffing
 let initialLoadDone = false;
 let pendingJoinRoomId = null; // roomId waiting for password modal
 let inheritedRooms = {}; // roomId → true (rooms from other tabs, display only)
+const REJOIN_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
 
 function isInRoom(roomId) {
   return !!myActiveRooms[roomId] || !!inheritedRooms[roomId];
@@ -193,8 +194,6 @@ function handleDeepLink() {
 }
 
 // ---- Auto-rejoin after refresh ----
-const REJOIN_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
-
 async function handleAutoRejoin() {
   try {
     const saved = JSON.parse(localStorage.getItem("hisam-active-session") || "null");
