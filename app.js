@@ -1109,28 +1109,36 @@ function drawFavicon(badge) {
   canvas.height = 32;
   const ctx = canvas.getContext("2d");
 
-  // Cercle de fond violet
+  // Fond arrondi avec degrade violet
+  const grad = ctx.createLinearGradient(0, 0, 32, 32);
+  grad.addColorStop(0, "#7c6cf0");
+  grad.addColorStop(1, "#5a4bd1");
   ctx.beginPath();
-  ctx.arc(16, 16, 16, 0, 2 * Math.PI);
-  ctx.fillStyle = "#6c5ce7";
+  ctx.roundRect(0, 0, 32, 32, 8);
+  ctx.fillStyle = grad;
   ctx.fill();
 
-  // Lettre "H" blanche
+  // Texte "Hi" blanc
   ctx.fillStyle = "#fff";
-  ctx.font = "bold 20px sans-serif";
+  ctx.font = "bold 15px Arial, Helvetica, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText("H", 16, 17);
+  ctx.fillText("Hi", 16, 17);
 
-  // Badge rouge
+  // Badge rouge clignotant
   if (badge) {
     ctx.beginPath();
-    ctx.arc(26, 6, 6, 0, 2 * Math.PI);
+    ctx.arc(27, 6, 5, 0, 2 * Math.PI);
     ctx.fillStyle = "#e74c3c";
     ctx.fill();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = "#5a4bd1";
+    ctx.stroke();
   }
 
-  document.getElementById("favicon").href = canvas.toDataURL("image/png");
+  const link = document.getElementById("favicon");
+  link.type = "image/png";
+  link.href = canvas.toDataURL("image/png");
 }
 
 function startFaviconBlink() {
