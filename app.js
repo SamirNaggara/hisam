@@ -319,15 +319,11 @@ function listenToUsers() {
     const users = snap.val() || {};
 
     if (initialLoadDone) {
-      // Notifications
+      // Notifications: only when someone joins a room
       Object.entries(users).forEach(([id, user]) => {
         if (id === myId || !user.online) return;
         const prev = knownUsers[id];
-
-        if (!prev) {
-          notify(`${user.name} est en ligne`, "online");
-        } else {
-          // Check room joins/leaves
+        if (prev) {
           const prevRooms = prev.activeRooms || {};
           const currRooms = user.activeRooms || {};
           Object.keys(currRooms).forEach((roomId) => {
@@ -336,20 +332,6 @@ function listenToUsers() {
               notify(`${user.name} a rejoint ${roomName}`, "room");
             }
           });
-          Object.keys(prevRooms).forEach((roomId) => {
-            if (!currRooms[roomId]) {
-              const roomName = allRooms[roomId]?.name || "un salon";
-              notify(`${user.name} a quitte ${roomName}`, "leave");
-            }
-          });
-        }
-      });
-
-      // Detect departures
-      Object.entries(knownUsers).forEach(([id, user]) => {
-        if (id === myId) return;
-        if (!users[id]) {
-          notify(`${user.name} est parti`, "leave");
         }
       });
     }
