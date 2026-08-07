@@ -98,6 +98,7 @@ const loginError = document.getElementById("login-error");
 const loginBtn = document.getElementById("login-btn");
 const myNameEl = document.getElementById("my-name");
 const onlineCount = document.getElementById("online-count");
+const onlineTooltip = document.getElementById("online-tooltip");
 const roomsList = document.getElementById("rooms-list");
 const createRoomBtn = document.getElementById("create-room-btn");
 const notifBtn = document.getElementById("notif-btn");
@@ -351,9 +352,26 @@ function listenToUsers() {
 }
 
 function updateOnlineCount() {
-  const count = Object.values(allUsers).filter((u) => u.online).length;
-  onlineCount.textContent = `${count} en ligne`;
+  const onlineUsers = Object.values(allUsers).filter((u) => u.online);
+  onlineCount.textContent = `${onlineUsers.length} en ligne`;
+
+  if (onlineUsers.length === 0) {
+    onlineTooltip.innerHTML = '<div class="online-tooltip-empty">Personne en ligne</div>';
+  } else {
+    onlineTooltip.innerHTML = onlineUsers
+      .map((u) => `<div class="online-tooltip-item">${u.name}</div>`)
+      .join("");
+  }
 }
+
+onlineCount.addEventListener("click", (e) => {
+  e.stopPropagation();
+  onlineTooltip.classList.toggle("visible");
+});
+
+document.addEventListener("click", () => {
+  onlineTooltip.classList.remove("visible");
+});
 
 // ---- Render rooms ----
 function renderRooms() {
