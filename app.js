@@ -18,6 +18,7 @@
 // Structure Firebase :
 //   /rooms/{roomId}  → { name, passwordHash, createdAt, createdBy, createdById }
 //   /users/{userId}  → { name, online, activeRooms: { roomId: true }, ts }
+//   /logs/{pushId}   → { type, user, ts, [room] }
 //
 // ============================================================
 
@@ -314,25 +315,57 @@ function listenToRooms() {
   });
 }
 
+// ---- Logs ----
+function writeLog(type, userName, roomName) {
+  const entry = { type, user: userName, ts: firebase.database.ServerValue.TIMESTAMP };
+  if (roomName) entry.room = roomName;
+  db.ref("logs").push(entry);
+}
+
 // ---- Listen to users ----
 function listenToUsers() {
   db.ref("users").on("value", (snap) => {
     const users = snap.val() || {};
 
     if (initialLoadDone) {
-      // Notifications: only when someone joins a room
       Object.entries(users).forEach(([id, user]) => {
-        if (id === myId || !user.online) return;
         const prev = knownUsers[id];
-        if (prev) {
+
+        // Connexion / déconnexion
+        if (!prev && user.online) {
+          writeLog("connect", user.name);
+        } else if (prev && prev.online && !user.online) {
+          writeLog("disconnect", prev.name);
+        } else if (prev && !prev.online && user.online) {
+          writeLog("connect", user.name);
+        }
+
+        // Entrée / sortie de salon
+        if (prev && user.online) {
           const prevRooms = prev.activeRooms || {};
           const currRooms = user.activeRooms || {};
           Object.keys(currRooms).forEach((roomId) => {
             if (!prevRooms[roomId]) {
-              const roomName = allRooms[roomId]?.name || "un salon";
-              notify(`${user.name} a rejoint ${roomName}`, "room");
+              const roomName = allRooms[roomId]?.name || roomId;
+              writeLog("join", user.name, roomName);
+              if (id !== myId) {
+                notify(`${user.name} a rejoint ${roomName}`, "room");
+              }
             }
           });
+          Object.keys(prevRooms).forEach((roomId) => {
+            if (!currRooms[roomId]) {
+              const roomName = allRooms[roomId]?.name || roomId;
+              writeLog("leave", user.name, roomName);
+            }
+          });
+        }
+      });
+
+      // Utilisateur supprimé (déconnexion par onDisconnect().remove())
+      Object.entries(knownUsers).forEach(([id, prev]) => {
+        if (!users[id] && prev.online) {
+          writeLog("disconnect", prev.name);
         }
       });
     }
