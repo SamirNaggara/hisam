@@ -11,9 +11,9 @@ Démo du fonctionnement : une page principale (le bureau et ses salons), un widg
 **Firebase ne sert qu'au strict minimum** : la liste des salons et leur nom, la présence (qui est en ligne, qui est dans quel salon) et un journal d'événements. Il joue le rôle d'annuaire pour que les navigateurs se trouvent, rien de plus. Aucune donnée audio n'y passe.
 
 ```text
-Navigateur A  ⇄  voix en pair à pair (WebRTC)  ⇄  Navigateur B
-       �“                                              ↑
-       └────────  Firebase : salons, présence  ───────┘
+Navigateur A  <-->  voix en pair a pair (WebRTC)  <-->  Navigateur B
+      |                                                    |
+      +---------  Firebase : salons, presence  -----------+
                   (juste pour se trouver)
 ```
 
