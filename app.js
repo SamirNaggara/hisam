@@ -48,6 +48,10 @@ let peer = null;
 let localStream = null;
 let isMuted = false;
 let connections = {}; // peerId → MediaConnection
+const APP_VERSION = "video-2";
+const PEER_MAX_RECONNECT = 8;
+let peerReconnectAttempts = 0;
+let peerReconnectTimer = null;
 const VIDEO_KINDS = ["camera", "screen"];
 let videoStreams = { camera: null, screen: null }; // kind → MediaStream que j'envoie
 let videoCalls = { camera: {}, screen: {} }; // kind → peerId → MediaConnection sortante
@@ -182,6 +186,7 @@ loginBtn.addEventListener("click", () => {
 });
 
 function startApp() {
+  console.log(`[HiSam] version ${APP_VERSION}`);
   loginScreen.style.display = "none";
   mainScreen.style.display = "block";
   myNameEl.textContent = myName;
@@ -948,6 +953,10 @@ function setupPeer() {
 
   peer.on("open", () => {
     console.log("[HiSam] PeerJS connecte:", peer.id);
+    // Connexion retablie : on repart d'un delai court
+    peerReconnectAttempts = 0;
+    clearTimeout(peerReconnectTimer);
+    peerReconnectTimer = null;
   });
 
   peer.on("call", (call) => {
@@ -958,8 +967,12 @@ function setupPeer() {
     // Video call (camera / screen): accept without sending anything back
     if (VIDEO_KINDS.includes(metadata.kind)) {
       if (sharesAnyRoom(call.peer)) {
+        console.log(`[HiSam] video <- appel ${metadata.kind} de ${call.peer}, acceptation`);
         call.answer();
         setupIncomingVideoCall(call, metadata.kind);
+      } else {
+        console.warn(`[HiSam] video <- appel ${metadata.kind} de ${call.peer} REFUSE : aucun salon commun`,
+          { mesSalons: Object.keys(myActiveRooms), sesSalons: Object.keys(allUsers[call.peer]?.activeRooms || {}) });
       }
       return;
     }
@@ -981,14 +994,46 @@ function setupPeer() {
       // Another tab already has this PeerJS ID — don't retry endlessly
       console.log("[HiSam] Audio actif dans un autre onglet");
     } else if (err.type === "network") {
-      setTimeout(() => peer.reconnect(), 3000);
+      schedulePeerReconnect();
     }
   });
 
   peer.on("disconnected", () => {
-    console.log("[HiSam] PeerJS deconnecte, reconnexion...");
-    peer.reconnect();
+    schedulePeerReconnect();
   });
+}
+
+// Le serveur PeerJS public limite le debit par IP : une reconnexion en boucle
+// declenche un bannissement Cloudflare (HTTP 429) de plusieurs dizaines de minutes,
+// et plus aucun nouvel appel ne peut etre etabli. D'ou le backoff exponentiel.
+function schedulePeerReconnect() {
+  if (peerReconnectTimer) return; // une seule tentative en vol a la fois
+  if (!peer || peer.destroyed) return;
+
+  if (peerReconnectAttempts >= PEER_MAX_RECONNECT) {
+    console.error(
+      `[HiSam] PeerJS injoignable apres ${PEER_MAX_RECONNECT} tentatives. ` +
+      "Le serveur de signalisation public est probablement sature ou bloque cette IP. " +
+      "Recharge la page dans un moment."
+    );
+    return;
+  }
+
+  // 2s, 4s, 8s... plafonne a 60s, + jitter pour ne pas synchroniser les onglets
+  const base = Math.min(60000, 2000 * Math.pow(2, peerReconnectAttempts));
+  const delay = Math.round(base + Math.random() * 1000);
+  peerReconnectAttempts++;
+
+  console.log(
+    `[HiSam] PeerJS deconnecte, reconnexion dans ${Math.round(delay / 1000)}s ` +
+    `(tentative ${peerReconnectAttempts}/${PEER_MAX_RECONNECT})`
+  );
+
+  peerReconnectTimer = setTimeout(() => {
+    peerReconnectTimer = null;
+    if (!peer || peer.destroyed) return;
+    peer.reconnect();
+  }, delay);
 }
 
 function setupCall(call) {
@@ -1312,7 +1357,12 @@ function syncVideoCalls() {
       if (videoCalls[kind][id]) return; // deja appele
 
       const call = peer.call(id, stream, { metadata: { kind } });
-      if (!call) return;
+      if (!call) {
+        console.warn(`[HiSam] video -> peer.call(${id}, ${kind}) a echoue`);
+        return;
+      }
+      console.log(`[HiSam] video -> appel ${kind} vers ${id}`);
+      watchIce(call, `${kind}->${id}`);
       videoCalls[kind][id] = call;
       const forget = () => {
         if (videoCalls[kind][id] === call) delete videoCalls[kind][id];
@@ -1344,6 +1394,20 @@ function cleanupVideoCalls() {
   });
 }
 
+// Trace l'etat ICE d'un appel video (diagnostic : "failed" = NAT bloquant, il faut un TURN)
+function watchIce(call, label) {
+  const pc = call.peerConnection;
+  if (!pc) return;
+  pc.addEventListener("iceconnectionstatechange", () => {
+    const state = pc.iceConnectionState;
+    if (state === "failed") {
+      console.error(`[HiSam] video ${label} : ICE failed (NAT bloquant, un serveur TURN serait necessaire)`);
+    } else {
+      console.log(`[HiSam] video ${label} : ICE ${state}`);
+    }
+  });
+}
+
 // Limite le debit montant par destinataire (mesh : N-1 copies)
 function capBitrate(call, maxBitrate) {
   const pc = call.peerConnection;
@@ -1367,7 +1431,10 @@ function setupIncomingVideoCall(call, kind) {
   }
   remoteVideoCalls[key] = call;
 
+  watchIce(call, `${kind}<-${call.peer}`);
   call.on("stream", (remoteStream) => {
+    console.log(`[HiSam] video <- flux ${kind} recu de ${call.peer}`,
+      remoteStream.getVideoTracks().length + " piste(s) video");
     const user = allUsers[call.peer];
     addVideo(call.peer, kind, remoteStream, user ? user.name : "?");
   });
