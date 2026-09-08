@@ -17,7 +17,7 @@
 //
 // Structure Firebase :
 //   /rooms/{roomId}  → { name, passwordHash, createdAt, createdBy, createdById }
-//   /users/{userId}  → { name, online, activeRooms: { roomId: true }, ts }
+//   /users/{userId}  → { name, online, activeRooms: { roomId: true }, muted, ts }
 //   /logs/{pushId}   → { type, user, ts, [room] }
 //
 // ============================================================
@@ -48,6 +48,13 @@ let peer = null;
 let localStream = null;
 let isMuted = false;
 let connections = {}; // peerId → MediaConnection
+const VIDEO_KINDS = ["camera", "screen"];
+let videoStreams = { camera: null, screen: null }; // kind → MediaStream que j'envoie
+let videoCalls = { camera: {}, screen: {} }; // kind → peerId → MediaConnection sortante
+let remoteVideoCalls = {}; // `${peerId}-${kind}` → MediaConnection entrante
+
+const MIC_ON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>';
+const MIC_OFF_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="2" x2="22" y1="2" y2="22"/><path d="M18.89 13.23A7.12 7.12 0 0 0 19 12v-2"/><path d="M5 10v2a7 7 0 0 0 12 5"/><path d="M15 9.34V5a3 3 0 0 0-5.68-1.33"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12"/><line x1="12" x2="12" y1="19" y2="22"/></svg>';
 let myActiveRooms = {}; // roomId → true (rooms this TAB joined)
 let allRooms = {}; // roomId → { name, passwordHash, createdAt, createdBy }
 let allUsers = {}; // userId → { name, online, activeRooms, ts }
@@ -113,6 +120,10 @@ const micIcon = document.getElementById("mic-icon");
 const micOffIcon = document.getElementById("mic-off-icon");
 const leaveAllBtn = document.getElementById("leave-all-btn");
 const micSelect = document.getElementById("mic-select");
+const cameraBtn = document.getElementById("camera-btn");
+const screenBtn = document.getElementById("screen-btn");
+const videoArea = document.getElementById("video-area");
+const videoGrid = document.getElementById("video-grid");
 
 // Modal: Create Room
 const modalCreate = document.getElementById("modal-create");
@@ -283,6 +294,7 @@ function setupPresence() {
       Object.keys(myActiveRooms).forEach((roomId) => {
         db.ref(`users/${myId}/activeRooms/${roomId}`).set(true);
       });
+      publishMicState();
     }
   });
 
@@ -297,6 +309,7 @@ function setupPresence() {
         ts: firebase.database.ServerValue.TIMESTAMP,
       }).then(() => {
         userRef.onDisconnect().remove();
+        publishMicState();
         // Re-add rooms this tab has joined
         Object.keys(myActiveRooms).forEach((roomId) => {
           db.ref(`users/${myId}/activeRooms/${roomId}`).set(true);
@@ -427,7 +440,9 @@ function renderRooms() {
   roomsList.innerHTML = roomEntries
     .map(([roomId, room]) => {
       const members = getRoomMembers(roomId);
-      const memberNames = members.map((u) => escapeHtml(u.name)).join(", ");
+      const memberNames = members
+        .map((u) => `<span class="room-member${u.muted ? " muted" : ""}" title="${u.muted ? "Micro coupe" : "Micro actif"}">${u.muted ? MIC_OFF_SVG : MIC_ON_SVG}${escapeHtml(u.name)}</span>`)
+        .join("");
       const isActive = isInRoom(roomId);
 
       return `
@@ -475,7 +490,7 @@ function renderRooms() {
 function getRoomMembers(roomId) {
   return Object.entries(allUsers)
     .filter(([, u]) => u.online && u.activeRooms && u.activeRooms[roomId])
-    .map(([id, u]) => ({ id, name: u.name }));
+    .map(([id, u]) => ({ id, name: u.name, muted: u.muted === true }));
 }
 
 // ---- Create Room Modal ----
@@ -707,6 +722,7 @@ async function joinRoom(roomId) {
   myActiveRooms[roomId] = true;
   // Write only this room (don't overwrite other tabs' rooms)
   await db.ref(`users/${myId}/activeRooms/${roomId}`).set(true);
+  publishMicState();
 
   renderRooms();
   connectToPeersInRoom(roomId);
@@ -827,9 +843,10 @@ function leaveRoom(roomId) {
   // Close connections with peers we no longer share any room with
   cleanupConnections();
 
-  // If no more active rooms in this tab, stop mic
+  // If no more active rooms in this tab, stop mic and video
   if (Object.keys(myActiveRooms).length === 0) {
     stopMic();
+    stopAllShares();
   }
 
   // Clear auto-rejoin if no rooms left anywhere
@@ -854,11 +871,21 @@ function leaveAllRooms() {
 
   stopAllAnalysers();
   stopMic();
+  stopAllShares();
+  removeAllRemoteVideos();
   audioContainer.innerHTML = "";
   renderRooms();
 }
 
+// ---- Etat du micro publie aux autres ----
+// Seul l'onglet qui tient le micro publie l'etat (les autres onglets n'ont pas de flux)
+function publishMicState() {
+  if (!localStream) return;
+  db.ref(`users/${myId}/muted`).set(isMuted);
+}
+
 function stopMic() {
+  db.ref(`users/${myId}/muted`).remove();
   stopLocalAnalyser();
   if (localStream) {
     localStream.getTracks().forEach((t) => t.stop());
@@ -899,6 +926,7 @@ globalMuteBtn.addEventListener("click", () => {
   localStream.getAudioTracks().forEach((t) => {
     t.enabled = !isMuted;
   });
+  publishMicState();
   updateMuteBtn();
 });
 
@@ -926,6 +954,15 @@ function setupPeer() {
     // Accept call if we share at least one room with the caller
     const metadata = call.metadata || {};
     const callerRoomId = metadata.roomId;
+
+    // Video call (camera / screen): accept without sending anything back
+    if (VIDEO_KINDS.includes(metadata.kind)) {
+      if (sharesAnyRoom(call.peer)) {
+        call.answer();
+        setupIncomingVideoCall(call, metadata.kind);
+      }
+      return;
+    }
 
     // Check if we're in this room
     if (callerRoomId && myActiveRooms[callerRoomId] && localStream) {
@@ -1175,6 +1212,8 @@ function syncConnections() {
       if (call) setupCall(call);
     }
   });
+
+  syncVideoCalls();
 }
 
 function cleanupConnections() {
@@ -1185,6 +1224,215 @@ function cleanupConnections() {
       delete connections[peerId];
     }
   });
+  cleanupVideoCalls();
+}
+
+
+// ---- Video : camera + partage d'ecran ----
+// Chaque flux video passe par un appel PeerJS separe (metadata.kind),
+// l'appel audio existant n'est jamais touche.
+cameraBtn.addEventListener("click", () => toggleShare("camera"));
+screenBtn.addEventListener("click", () => toggleShare("screen"));
+
+if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+  screenBtn.style.display = "none"; // pas de partage d'ecran sur mobile
+}
+
+async function toggleShare(kind) {
+  if (videoStreams[kind]) {
+    stopShare(kind);
+    return;
+  }
+  if (!peer || Object.keys(myActiveRooms).length === 0) return;
+
+  let stream;
+  try {
+    if (kind === "screen") {
+      stream = await navigator.mediaDevices.getDisplayMedia({
+        video: { frameRate: { max: 15 } },
+        audio: true,
+      });
+    } else {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 640 }, height: { ideal: 360 }, frameRate: { max: 24 } },
+      });
+    }
+  } catch (err) {
+    if (err.name !== "NotAllowedError" && err.name !== "AbortError") {
+      alert(kind === "screen"
+        ? "Impossible de partager l'ecran."
+        : "Impossible d'acceder a la camera. Verifie les permissions du navigateur.");
+    }
+    return;
+  }
+
+  const track = stream.getVideoTracks()[0];
+  if (!track) return;
+  track.contentHint = kind === "screen" ? "detail" : "motion";
+  // Arret via le bouton natif du navigateur ("Arreter le partage")
+  track.addEventListener("ended", () => stopShare(kind));
+
+  videoStreams[kind] = stream;
+  addVideo("local", kind, stream, "Toi");
+  updateShareBtns();
+  syncVideoCalls();
+}
+
+function stopShare(kind) {
+  const stream = videoStreams[kind];
+  if (!stream) return;
+  videoStreams[kind] = null;
+  stream.getTracks().forEach((t) => t.stop());
+  Object.values(videoCalls[kind]).forEach((call) => call.close());
+  videoCalls[kind] = {};
+  removeVideo("local", kind);
+  updateShareBtns();
+}
+
+function stopAllShares() {
+  VIDEO_KINDS.forEach(stopShare);
+}
+
+function updateShareBtns() {
+  cameraBtn.classList.toggle("active", !!videoStreams.camera);
+  cameraBtn.title = videoStreams.camera ? "Couper la camera" : "Activer la camera";
+  screenBtn.classList.toggle("active", !!videoStreams.screen);
+  screenBtn.title = videoStreams.screen ? "Arreter le partage" : "Partager mon ecran";
+}
+
+// Appelle chaque personne avec qui je partage un salon, pour chaque flux que j'envoie
+function syncVideoCalls() {
+  if (!peer) return;
+  VIDEO_KINDS.forEach((kind) => {
+    const stream = videoStreams[kind];
+    if (!stream) return;
+
+    Object.entries(allUsers).forEach(([id, user]) => {
+      if (id === myId || !user.online || !sharesAnyRoom(id)) return;
+      if (videoCalls[kind][id]) return; // deja appele
+
+      const call = peer.call(id, stream, { metadata: { kind } });
+      if (!call) return;
+      videoCalls[kind][id] = call;
+      const forget = () => {
+        if (videoCalls[kind][id] === call) delete videoCalls[kind][id];
+      };
+      call.on("close", forget);
+      call.on("error", forget);
+      capBitrate(call, kind === "screen" ? 1500000 : 600000);
+    });
+  });
+}
+
+// Ferme les appels video avec les personnes qui ne partagent plus de salon avec moi
+function cleanupVideoCalls() {
+  VIDEO_KINDS.forEach((kind) => {
+    Object.keys(videoCalls[kind]).forEach((peerId) => {
+      if (!sharesAnyRoom(peerId)) {
+        videoCalls[kind][peerId].close();
+        delete videoCalls[kind][peerId];
+      }
+    });
+  });
+  Object.keys(remoteVideoCalls).forEach((key) => {
+    const call = remoteVideoCalls[key];
+    if (!sharesAnyRoom(call.peer)) {
+      call.close();
+      removeVideo(call.peer, call.metadata.kind);
+      delete remoteVideoCalls[key];
+    }
+  });
+}
+
+// Limite le debit montant par destinataire (mesh : N-1 copies)
+function capBitrate(call, maxBitrate) {
+  const pc = call.peerConnection;
+  if (!pc) return;
+  pc.addEventListener("connectionstatechange", () => {
+    if (pc.connectionState !== "connected") return;
+    pc.getSenders().forEach((sender) => {
+      if (!sender.track || sender.track.kind !== "video") return;
+      const params = sender.getParameters();
+      if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
+      params.encodings[0].maxBitrate = maxBitrate;
+      sender.setParameters(params).catch(() => {});
+    });
+  });
+}
+
+function setupIncomingVideoCall(call, kind) {
+  const key = `${call.peer}-${kind}`;
+  if (remoteVideoCalls[key] && remoteVideoCalls[key] !== call) {
+    remoteVideoCalls[key].close();
+  }
+  remoteVideoCalls[key] = call;
+
+  call.on("stream", (remoteStream) => {
+    const user = allUsers[call.peer];
+    addVideo(call.peer, kind, remoteStream, user ? user.name : "?");
+  });
+  const done = () => {
+    if (remoteVideoCalls[key] === call) delete remoteVideoCalls[key];
+    removeVideo(call.peer, kind);
+  };
+  call.on("close", done);
+  call.on("error", done);
+}
+
+function addVideo(peerId, kind, stream, label) {
+  removeVideo(peerId, kind);
+  const tile = document.createElement("div");
+  tile.id = `video-${peerId}-${kind}`;
+  tile.className = `video-tile ${kind}${peerId === "local" ? " local" : ""}`;
+  tile.title = "Cliquer pour agrandir";
+
+  const video = document.createElement("video");
+  video.srcObject = stream;
+  video.autoplay = true;
+  video.setAttribute("playsinline", "");
+  // Mon propre flux : muet (sinon echo). Le son d'un partage d'ecran distant est joue.
+  video.muted = peerId === "local";
+  tile.appendChild(video);
+
+  const caption = document.createElement("span");
+  caption.className = "video-tile-label";
+  caption.textContent = `${label} · ${kind === "screen" ? "Ecran" : "Camera"}`;
+  tile.appendChild(caption);
+
+  tile.addEventListener("click", () => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+    } else if (tile.requestFullscreen) {
+      tile.requestFullscreen();
+    } else if (video.webkitEnterFullscreen) {
+      video.webkitEnterFullscreen();
+    }
+  });
+
+  videoGrid.appendChild(tile);
+  video.play().catch(() => {});
+  updateVideoArea();
+}
+
+function removeVideo(peerId, kind) {
+  const el = document.getElementById(`video-${peerId}-${kind}`);
+  if (el) {
+    const v = el.querySelector("video");
+    if (v) v.srcObject = null;
+    el.remove();
+  }
+  updateVideoArea();
+}
+
+function removeAllRemoteVideos() {
+  Object.values(remoteVideoCalls).forEach((call) => call.close());
+  remoteVideoCalls = {};
+  videoGrid.innerHTML = "";
+  updateVideoArea();
+}
+
+function updateVideoArea() {
+  videoArea.style.display = videoGrid.children.length > 0 ? "" : "none";
 }
 
 // ---- Notifications ----
