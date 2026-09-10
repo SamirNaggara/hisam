@@ -234,8 +234,9 @@ const WORLD_MAP = {
     "oooooooooooooooooooooooooooooooooooooooo"
   ],
 
-  // Cases d'apparition (devant les ascenseurs), par ordre de preference
-  spawn: [[18, 42], [19, 42], [18, 44], [19, 44], [17, 42], [20, 42], [17, 44], [20, 44], [18, 46], [19, 46], [18, 41], [19, 41]],
+  // Cases d'apparition (dans les ascenseurs), par ordre de preference, face au couloir
+  spawn: [[22, 42], [23, 42], [22, 46], [23, 46], [22, 41], [23, 41], [22, 43], [23, 43], [22, 45], [23, 45], [22, 47], [23, 47]],
+  spawnDir: 1,
 
   // Etiquettes dessinees sur le sol
   labels: [

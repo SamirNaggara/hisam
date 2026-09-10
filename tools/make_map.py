@@ -213,11 +213,12 @@ def reachable(sx, sy, tx, ty):
     return False
 
 
-spawn = [[18, 42], [19, 42], [18, 44], [19, 44], [17, 42], [20, 42], [17, 44], [20, 44], [18, 46], [19, 46], [18, 41], [19, 41]]
+# On apparait dans les cabines, face au couloir
+spawn = [[22, 42], [23, 42], [22, 46], [23, 46], [22, 41], [23, 41], [22, 43], [23, 43], [22, 45], [23, 45], [22, 47], [23, 47]]
 for x, y in spawn:
     assert walkable(x, y), ("spawn bloque", x, y, obj[y][x])
-for target in ((30, 25), (10, 19), (8, 30), (25, 36), (23, 41), (23, 47)):
-    assert reachable(18, 42, *target), ("inaccessible depuis le spawn", target)
+for target in ((30, 25), (10, 19), (8, 30), (25, 36), (23, 41), (23, 47), (18, 42)):
+    assert reachable(22, 42, *target), ("inaccessible depuis le spawn", target)
 # Les pieces fermees ne doivent etre accessibles que par leur porte
 assert not reachable(18, 42, 15, 22) or True
 
@@ -315,8 +316,9 @@ const WORLD_MAP = {{
 {js_rows(zone)}
   ],
 
-  // Cases d'apparition (devant les ascenseurs), par ordre de preference
+  // Cases d'apparition (dans les ascenseurs), par ordre de preference, face au couloir
   spawn: {spawn},
+  spawnDir: 1,
 
   // Etiquettes dessinees sur le sol
   labels: [

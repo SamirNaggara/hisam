@@ -329,20 +329,21 @@
       this.remotes.forEach((r) => occupied.add(r.tx + "," + r.ty));
       const free = (x, y) => this.isWalkable(x, y) && !occupied.has(x + "," + y);
 
+      const spawnDir = Number.isInteger(this.map.spawnDir) ? this.map.spawnDir : 3;
       let pos = null;
       if (preferred && Number.isInteger(preferred.x) && Number.isInteger(preferred.y) && free(preferred.x, preferred.y)) {
-        pos = { x: preferred.x, y: preferred.y, dir: Number.isInteger(preferred.dir) ? preferred.dir : 3 };
+        pos = { x: preferred.x, y: preferred.y, dir: Number.isInteger(preferred.dir) ? preferred.dir : spawnDir };
       }
       if (!pos) {
         const cand = this.map.spawn.find(([x, y]) => free(x, y));
-        if (cand) pos = { x: cand[0], y: cand[1], dir: 3 };
+        if (cand) pos = { x: cand[0], y: cand[1], dir: spawnDir };
       }
       if (!pos) {
         // Tout est pris : premiere case libre en partant de l'entree
         const [sx, sy] = this.map.spawn[0];
         const found = this._bfs(sx, sy, (x, y) => free(x, y), 4000);
         const [fx, fy] = found || [sx, sy];
-        pos = { x: fx, y: fy, dir: 3 };
+        pos = { x: fx, y: fy, dir: spawnDir };
       }
       this.me.x = pos.x; this.me.y = pos.y; this.me.dir = pos.dir;
       this.me.px = pos.x * CONFIG.TILE; this.me.py = pos.y * CONFIG.TILE;
