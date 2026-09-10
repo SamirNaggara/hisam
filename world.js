@@ -23,7 +23,6 @@
     REMOTE_CATCHUP: 1.6,      // acceleration des distants quand ils ont > 2 cases de retard
     SCALE_BREAKPOINTS: [[1400, 4], [900, 3], [0, 2]],
     ACCENT: "#0d9488",
-    HINT_MS: 7000,
   };
 
   const DIRS = ["down", "left", "right", "up"];
@@ -114,8 +113,8 @@
       this.ctx = this.canvas.getContext("2d");
       this.map = opts.map;
       this.assets = Object.assign({
-        tileset: "assets/tileset.png",
-        tilesetIndex: "assets/tileset.json",
+        tileset: "assets/tileset.png?v=world-3",
+        tilesetIndex: "assets/tileset.json?v=world-3",
         characters: "assets/characters.png",
         charactersIndex: "assets/characters.json",
       }, opts.assets || {});
@@ -148,7 +147,6 @@
       this.running = false;
       this.raf = null;
       this.lastTime = 0;
-      this.hintUntil = 0;
       this.loaded = false;
 
       this._onKeyDown = this._onKeyDown.bind(this);
@@ -363,7 +361,6 @@
       window.addEventListener("blur", this._onBlur);
       window.addEventListener("resize", this._onResize);
       this.canvas.addEventListener("pointerdown", this._onPointerDown);
-      this.hintUntil = performance.now() + CONFIG.HINT_MS;
       this.lastTime = performance.now();
       this.resize();
       this.raf = requestAnimationFrame(this._frame);
@@ -806,21 +803,6 @@
           ctx.stroke();
         }
       });
-
-      // Aide au demarrage
-      if (now < this.hintUntil) {
-        const alpha = clamp((this.hintUntil - now) / 800, 0, 1);
-        const text = "Fleches / ZQSD / WASD ou clic pour marcher. Approche-toi de quelqu'un pour lui parler.";
-        ctx.font = "500 12px Inter, system-ui, sans-serif";
-        const w = ctx.measureText(text).width + 24;
-        const cw = this.canvas.width / dpr, chh = this.canvas.height / dpr;
-        ctx.fillStyle = `rgba(0,0,0,${0.6 * alpha})`;
-        ctx.beginPath();
-        ctx.roundRect((cw - w) / 2, chh - 44, w, 28, 8);
-        ctx.fill();
-        ctx.fillStyle = `rgba(255,255,255,${alpha})`;
-        ctx.fillText(text, cw / 2, chh - 26);
-      }
     }
   }
 
