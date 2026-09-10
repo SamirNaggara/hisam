@@ -330,7 +330,7 @@ def _elev_door(part):
     a moitie ferme : "top" descend vers l'ouverture, "bottom" remonte vers elle."""
     im = Image.new("RGBA", (T, T), (0, 0, 0, 0))
     d = ImageDraw.Draw(im)
-    x0, x1 = 4, 11
+    x0, x1 = 0, 6   # colle au bord couloir, sur la limite couloir / cabine
     d.rectangle([x0, 0, x1, T - 1], fill=(172, 178, 190, 255), outline=(96, 102, 116, 255))
     d.line([(x0 + 2, 1), (x0 + 2, T - 2)], fill=(210, 214, 222, 255))      # reflet
     edge = T - 1 if part == "top" else 0
