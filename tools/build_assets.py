@@ -326,19 +326,15 @@ def _bin(color):
 
 
 def _elev_door(part):
-    """Battant de porte d'ascenseur a moitie ferme, vu de dessus.
-    part = "top" : battant qui descend du haut de la case ; "bottom" : qui monte du bas."""
+    """Battant de porte d'ascenseur, vertical (1 case de large, pleine hauteur),
+    a moitie ferme : "top" descend vers l'ouverture, "bottom" remonte vers elle."""
     im = Image.new("RGBA", (T, T), (0, 0, 0, 0))
     d = ImageDraw.Draw(im)
-    if part == "top":
-        y0, y1 = 0, 8
-    else:
-        y0, y1 = 7, 15
-    d.rectangle([0, y0, T - 1, y1], fill=(172, 178, 190, 255), outline=(96, 102, 116, 255))
-    d.line([(1, y0 + 1), (T - 2, y0 + 1)] if part == "bottom" else [(1, y1 - 1), (T - 2, y1 - 1)], fill=(120, 126, 140, 255))
-    d.line([(3, y0 + 2), (3, y1 - 2)], fill=(210, 214, 222, 255))      # reflet
-    edge = y1 if part == "top" else y0
-    d.line([(0, edge), (T - 1, edge)], fill=(60, 64, 76, 255))          # bord avant du battant
+    x0, x1 = 4, 11
+    d.rectangle([x0, 0, x1, T - 1], fill=(172, 178, 190, 255), outline=(96, 102, 116, 255))
+    d.line([(x0 + 2, 1), (x0 + 2, T - 2)], fill=(210, 214, 222, 255))      # reflet
+    edge = T - 1 if part == "top" else 0
+    d.line([(x0, edge), (x1, edge)], fill=(60, 64, 76, 255))                # bord avant du battant
     return im
 
 
