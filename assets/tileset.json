@@ -12,19 +12,19 @@
   "mat": 6,
   "void": 7,
   "floor_marble": 8,
-  "wall_top": 9,
-  "wall_face": 10,
-  "wall_window": 11,
-  "wall_whiteboard": 12,
-  "wall_picture_a": 13,
-  "wall_picture_b": 14,
-  "wall_map": 15,
-  "door": 16,
-  "door_glass": 17,
-  "wall_screen": 18,
-  "elevator": 19,
-  "elev_door_top": 20,
-  "elev_door_bottom": 21,
+  "elev_sill": 9,
+  "wall_top": 10,
+  "wall_face": 11,
+  "wall_window": 12,
+  "wall_whiteboard": 13,
+  "wall_picture_a": 14,
+  "wall_picture_b": 15,
+  "wall_map": 16,
+  "door": 17,
+  "door_glass": 18,
+  "wall_screen": 19,
+  "elevator": 20,
+  "elev_door": 21,
   "desk_pc": 22,
   "desk_laptop": 23,
   "desk_papers": 24,
@@ -135,6 +135,9 @@
   "floor_marble": [
    "gen:floor_marble"
   ],
+  "elev_sill": [
+   "gen:elev_sill"
+  ],
   "wall_top": [
    "gen:wall_top"
   ],
@@ -177,11 +180,8 @@
    "gen:wall_top",
    "city:621"
   ],
-  "elev_door_top": [
-   "gen:elev_door_top"
-  ],
-  "elev_door_bottom": [
-   "gen:elev_door_bottom"
+  "elev_door": [
+   "gen:elev_door"
   ],
   "desk_pc": [
    "indoor:112",

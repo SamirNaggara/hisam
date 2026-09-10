@@ -168,13 +168,12 @@ rect(floor, 17, 40, 20, 47, "~")
 rect(obj, 16, 40, 16, 48, "^")
 rect(obj, 21, 40, 24, 48, "^")      # masse des ascenseurs
 rect(obj, 17, 48, 20, 48, "^")
-# Deux cabines 2 x 3 (cols 22-23), vues de dessus, ouvertes sur le couloir :
-# un battant ferme en haut, un en bas, on entre par la case du milieu
+# Deux cabines 2 x 3 (cols 22-23), vues de dessus. La porte (col 21) fait toute la
+# hauteur de la cabine : les battants, animes par world.js, se rangent dans les murs
+# du dessus et du dessous et se rejoignent au centre quand la porte est fermee.
 for y0 in (41, 45):
     rect(obj, 21, y0, 23, y0 + 2, ".")
     rect(floor, 21, y0, 23, y0 + 2, "m")       # cabine claire, porte comprise
-    obj[y0][21] = "O"
-    obj[y0 + 2][21] = "o"
 
 # ============================================================
 # Zones : "." partout a l'interieur du plateau hors salles fermees
@@ -217,7 +216,7 @@ def reachable(sx, sy, tx, ty):
 spawn = [[22, 42], [23, 42], [22, 46], [23, 46], [22, 41], [23, 41], [22, 43], [23, 43], [22, 45], [23, 45], [22, 47], [23, 47]]
 for x, y in spawn:
     assert walkable(x, y), ("spawn bloque", x, y, obj[y][x])
-for target in ((30, 25), (10, 19), (8, 30), (25, 36), (23, 41), (23, 47), (18, 42)):
+for target in ((30, 25), (10, 19), (8, 30), (25, 36), (23, 41), (23, 47), (18, 42), (21, 41), (21, 47)):
     assert reachable(22, 42, *target), ("inaccessible depuis le spawn", target)
 # Les pieces fermees ne doivent etre accessibles que par leur porte
 assert not reachable(18, 42, 15, 22) or True
@@ -251,6 +250,7 @@ const WORLD_MAP = {{
     ";": "floor_carpet_alt",
     "w": "floor_wood",
     "m": "floor_marble",
+    "S": "elev_sill",
     "~": "floor_tile",
     "1": "rug_tl", "2": "rug_tm", "3": "rug_tr",
     "4": "rug_ml", "5": "rug_mm", "6": "rug_mr",
@@ -270,8 +270,6 @@ const WORLD_MAP = {{
     "a": {{ tile: "wall_picture_b", solid: true }},
     "n": {{ tile: "wall_map", solid: true }},
     "e": {{ tile: "elevator", solid: true }},
-    "O": {{ tile: "elev_door_top", solid: true }},
-    "o": {{ tile: "elev_door_bottom", solid: true }},
     "c": {{ tile: "chair_down", solid: false }},
     "u": {{ tile: "chair_up", solid: false }},
     "r": {{ tile: "chair_right", solid: false }},
@@ -319,6 +317,16 @@ const WORLD_MAP = {{
   // Cases d'apparition (dans les ascenseurs), par ordre de preference, face au couloir
   spawn: {spawn},
   spawnDir: 1,
+
+  // Portes d'ascenseur animees : (x, y) = case du haut de l'ouverture, h = hauteur
+  // en cases ; les battants coulissent depuis les murs du dessus et du dessous.
+  // Ouvertes 50 s, fermees 15 s, en boucle, calees sur l'horloge pour que tout
+  // le monde voie la meme chose.
+  doorTiming: {{ open: 50, closed: 15, move: 1.2 }},
+  doors: [
+    {{ x: 21, y: 41, h: 3, offset: 0 }},
+    {{ x: 21, y: 45, h: 3, offset: 32 }},
+  ],
 
   // Etiquettes dessinees sur le sol
   labels: [

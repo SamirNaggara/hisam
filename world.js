@@ -214,7 +214,69 @@
     isWalkable(x, y) {
       const m = this.map;
       if (x < 0 || y < 0 || x >= m.width || y >= m.height) return false;
-      return this.walkable[y * m.width + x] === 1;
+      if (this.walkable[y * m.width + x] !== 1) return false;
+      const doors = m.doors || [];
+      for (let i = 0; i < doors.length; i++) {
+        const d = doors[i];
+        if (d.x === x && y >= d.y && y < d.y + (d.h || 1) && this._doorCovers(d, y, Date.now())) return false;
+      }
+      return true;
+    }
+
+    // Extension de chaque battant en pixels : un lisere quand la porte est ouverte,
+    // la moitie de l'ouverture quand elle est fermee (les deux se rejoignent).
+    _doorExtension(door, nowMs) {
+      const T = CONFIG.TILE;
+      const h = (door.h || 1) * T;
+      const OPEN_PX = 3;
+      return OPEN_PX + this._doorSlide(door, nowMs) * (h / 2 - OPEN_PX);
+    }
+
+    // Une case de l'ouverture est bloquee des qu'un battant la couvre a moitie
+    _doorCovers(door, tileY, nowMs) {
+      const T = CONFIG.TILE;
+      const ext = this._doorExtension(door, nowMs);
+      const top = door.y * T, bottom = (door.y + (door.h || 1)) * T;
+      const y0 = tileY * T, y1 = y0 + T;
+      const byTop = Math.max(0, Math.min(y1, top + ext) - y0);
+      const byBottom = Math.max(0, y1 - Math.max(y0, bottom - ext));
+      return byTop >= T / 2 || byBottom >= T / 2;
+    }
+
+    // Position des battants d'une porte : 0 = ouverte, 1 = fermee (cale sur l'horloge)
+    _doorSlide(door, nowMs) {
+      const t = this.map.doorTiming || { open: 50, closed: 15, move: 0.8 };
+      const cycle = t.open + t.closed;
+      const s = ((nowMs / 1000 + (door.offset || 0)) % cycle + cycle) % cycle;
+      if (s < t.open - t.move) return 0;
+      if (s < t.open) return (s - (t.open - t.move)) / t.move;
+      if (s < cycle - t.move) return 1;
+      return 1 - (s - (cycle - t.move)) / t.move;
+    }
+
+    // Les battants sortent du mur au-dessus et en dessous de l'entree : ouverts,
+    // on n'en voit qu'un lisere ; fermes, ils se rejoignent au milieu de la case.
+    _drawDoors(ctx, nowMs) {
+      const T = CONFIG.TILE;
+      const m = this.map;
+      if (!m.doors || !this.tileset.img || !this.tileset.meta || this.tileset.meta.names.elev_door == null) return;
+      const bar = this._tileRect("elev_door");
+      m.doors.forEach((d) => {
+        const h = (d.h || 1) * T;
+        const top = d.y * T, bottom = top + h;
+        const ext = Math.round(this._doorExtension(d, nowMs));
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(d.x * T, top, T, h);
+        ctx.clip();
+        // battant du haut : de top a top+ext ; battant du bas : de bottom-ext a bottom
+        for (let y = top + ext - T; y > top - T - h; y -= T) ctx.drawImage(this.tileset.img, bar.sx, bar.sy, T, T, d.x * T, y, T, T);
+        for (let y = bottom - ext; y < bottom + h; y += T) ctx.drawImage(this.tileset.img, bar.sx, bar.sy, T, T, d.x * T, y, T, T);
+        ctx.fillStyle = "#383e4e";
+        ctx.fillRect(d.x * T, top + ext - 1, 7, 1);       // bord avant du battant du haut
+        ctx.fillRect(d.x * T, bottom - ext, 7, 1);        // bord avant du battant du bas
+        ctx.restore();
+      });
     }
 
     zoneAt(x, y) {
@@ -258,6 +320,7 @@
           const ch = m.objects[y][x];
           if (ch === ".") continue;
           const entry = m.objectsLegend[ch];
+          if (entry.hidden) continue;   // dessine dynamiquement (portes animees)
           if (entry.above) { this._drawTile(actx, entry.tile, x, y); hasAbove = true; }
           else this._drawTile(fctx, entry.tile, x, y);
         }
@@ -629,6 +692,7 @@
       ctx.setTransform(S * dpr, 0, 0, S * dpr, -this.camX * S * dpr, -this.camY * S * dpr);
       ctx.imageSmoothingEnabled = false;
       if (this.floorCanvas) ctx.drawImage(this.floorCanvas, 0, 0);
+      this._drawDoors(ctx, Date.now());
 
       const me = this.me;
       const feet = (e) => [e.px + T / 2, e.py + T - 2];

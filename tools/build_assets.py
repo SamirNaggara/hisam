@@ -325,16 +325,26 @@ def _bin(color):
     return im
 
 
-def _elev_door(part):
-    """Battant de porte d'ascenseur, vertical (1 case de large, pleine hauteur),
-    a moitie ferme : "top" descend vers l'ouverture, "bottom" remonte vers elle."""
+def gen_elev_door():
+    """Battant de porte d'ascenseur : barre verticale unie, repetee sur la longueur
+    voulue par world.js (le bord avant est dessine a l'execution)."""
     im = Image.new("RGBA", (T, T), (0, 0, 0, 0))
     d = ImageDraw.Draw(im)
     x0, x1 = 0, 6   # colle au bord couloir, sur la limite couloir / cabine
-    d.rectangle([x0, 0, x1, T - 1], fill=(172, 178, 190, 255), outline=(96, 102, 116, 255))
-    d.line([(x0 + 2, 1), (x0 + 2, T - 2)], fill=(210, 214, 222, 255))      # reflet
-    edge = T - 1 if part == "top" else 0
-    d.line([(x0, edge), (x1, edge)], fill=(60, 64, 76, 255))                # bord avant du battant
+    d.rectangle([x0, 0, x1, T - 1], fill=(108, 118, 140, 255))
+    d.line([(x0, 0), (x0, T - 1)], fill=(56, 62, 78, 255))
+    d.line([(x1, 0), (x1, T - 1)], fill=(56, 62, 78, 255))
+    d.line([(x0 + 2, 0), (x0 + 2, T - 1)], fill=(168, 178, 198, 255))      # reflet
+    return im
+
+
+def gen_elev_sill():
+    """Seuil d'ascenseur : bande metallique claire avec les rails des battants."""
+    im = Image.new("RGBA", (T, T))
+    _fill_noise(im, (166, 170, 180), 3, 14)
+    d = ImageDraw.Draw(im)
+    d.line([(3, 0), (3, T - 1)], fill=(132, 136, 148, 255))              # rainure du rail
+    d.line([(T - 1, 0), (T - 1, T - 1)], fill=(124, 128, 140, 255))
     return im
 
 
@@ -361,8 +371,8 @@ GENERATORS = {
     "ov_whiteboard": gen_whiteboard_overlay,
     "ov_coffee": gen_coffee_overlay,
     "void": gen_void,
-    "elev_door_top": lambda: _elev_door("top"),
-    "elev_door_bottom": lambda: _elev_door("bottom"),
+    "elev_sill": gen_elev_sill,
+    "elev_door": gen_elev_door,
     "cabinet_front": gen_cabinet_front,
     "bin_yellow": lambda: _bin((232, 190, 60)),
     "bin_brown": lambda: _bin((140, 94, 60)),
@@ -393,6 +403,7 @@ MANIFEST = [
     ("mat", ["gen:mat"]),
     ("void", ["gen:void"]),
     ("floor_marble", ["gen:floor_marble"]),
+    ("elev_sill", ["gen:elev_sill"]),
     # murs
     ("wall_top", ["gen:wall_top"]),
     ("wall_face", ["gen:wall_face"]),
@@ -405,8 +416,7 @@ MANIFEST = [
     ("door_glass", ["gen:wall_face", "city:619"]),
     ("wall_screen", ["gen:wall_face", "gen:ov_screen"]),
     ("elevator", ["gen:wall_top", "city:621"]),
-    ("elev_door_top", ["gen:elev_door_top"]),
-    ("elev_door_bottom", ["gen:elev_door_bottom"]),
+    ("elev_door", ["gen:elev_door"]),
     # bureaux
     ("desk_pc", ["indoor:112", "gen:ov_monitor"]),
     ("desk_laptop", ["indoor:113", "gen:ov_laptop"]),
