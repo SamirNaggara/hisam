@@ -51,10 +51,12 @@ if (!myId) {
 let myName = localStorage.getItem("hisam-name") || "";
 let myAvatar = null;
 let peer = null;
-let localStream = null;
+let localStream = null;   // flux envoye aux pairs (traite si possible)
+let rawMicStream = null;  // pistes du peripherique
+let micProcessing = null; // chaine de nettoyage { stream, destroy }
 let isMuted = false;
 let connections = {}; // peerId → MediaConnection
-const APP_VERSION = "world-2";
+const APP_VERSION = "audio-1";
 const PEER_MAX_RECONNECT = 8;
 const RESYNC_INTERVAL_MS = 5000;
 let resyncTimer = null;
@@ -361,18 +363,64 @@ document.addEventListener("click", () => {
 });
 
 // ---- Micro ----
+// Traitements natifs du navigateur explicites. voiceIsolation est ignore la ou il
+// n'existe pas (il n'est pas en "exact").
+function micConstraints(deviceId) {
+  const c = {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+    channelCount: { ideal: 1 },
+    sampleRate: { ideal: 48000 },
+    voiceIsolation: true,
+  };
+  if (deviceId) c.deviceId = { exact: deviceId };
+  return c;
+}
+
+// Installe un nouveau flux micro brut : le passe dans la chaine de nettoyage
+// (audio-processing.js), remplace la piste envoyee aux pairs et relance le VU-metre.
+// Si le nettoyage echoue, le flux brut est envoye tel quel (comportement d'origine).
+async function installMicStream(rawStream) {
+  if (micProcessing) {
+    micProcessing.destroy();
+    micProcessing = null;
+  }
+  if (rawMicStream && rawMicStream !== rawStream) {
+    rawMicStream.getTracks().forEach((t) => t.stop());
+  }
+  rawMicStream = rawStream;
+
+  let processed = null;
+  try {
+    processed = await window.HiSamAudio.buildProcessedStream(getOrCreateAudioContext(), rawStream);
+  } catch (err) {
+    console.warn("[HiSam] Reduction de bruit indisponible, micro brut :", err);
+  }
+  // Un autre micro a ete installe pendant le chargement : on abandonne celui-ci.
+  if (rawMicStream !== rawStream) {
+    if (processed) processed.destroy();
+    return;
+  }
+  if (processed) console.log("[HiSam] Reduction de bruit active (RNNoise)");
+
+  micProcessing = processed;
+  localStream = processed ? processed.stream : rawStream;
+  localStream.getAudioTracks().forEach((t) => { t.enabled = !isMuted; });
+  replaceAudioTrackEverywhere(localStream.getAudioTracks()[0]);
+  startLocalAnalyser(localStream);
+}
+
 async function acquireMic() {
   if (localStream) return true;
+  let rawStream;
   try {
     const savedMicId = localStorage.getItem("hisam-mic-id");
-    const audioConstraints = savedMicId
-      ? { deviceId: { exact: savedMicId } }
-      : true;
-    localStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
+    rawStream = await navigator.mediaDevices.getUserMedia({ audio: micConstraints(savedMicId) });
   } catch (err) {
     // If exact deviceId fails, fallback to default
     try {
-      localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      rawStream = await navigator.mediaDevices.getUserMedia({ audio: micConstraints(null) });
       localStorage.removeItem("hisam-mic-id");
     } catch (err2) {
       console.warn("[HiSam] Micro indisponible, mode ecoute seule :", err2);
@@ -380,11 +428,8 @@ async function acquireMic() {
       return false;
     }
   }
-  if (isMuted) {
-    localStream.getAudioTracks().forEach((t) => { t.enabled = false; });
-  }
+  await installMicStream(rawStream);
   micWarningEl.style.display = "none";
-  startLocalAnalyser(localStream);
   populateMicSelect();
   publishMicState();
   return true;
@@ -427,40 +472,21 @@ function replaceAudioTrackEverywhere(newTrack) {
 }
 
 async function switchMicrophone(deviceId) {
+  let rawStream;
   try {
-    const audioConstraints = deviceId
-      ? { deviceId: { exact: deviceId } }
-      : true;
-    const newStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
-
-    if (localStream) {
-      localStream.getTracks().forEach((t) => t.stop());
-    }
-    if (isMuted) {
-      newStream.getAudioTracks().forEach((t) => { t.enabled = false; });
-    }
-    localStream = newStream;
-    replaceAudioTrackEverywhere(localStream.getAudioTracks()[0]);
-    startLocalAnalyser(localStream);
+    rawStream = await navigator.mediaDevices.getUserMedia({ audio: micConstraints(deviceId) });
   } catch (err) {
     console.warn("[HiSam] Erreur changement de micro, fallback defaut:", err);
     localStorage.removeItem("hisam-mic-id");
     micSelect.value = "";
     try {
-      const fallbackStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      if (localStream) {
-        localStream.getTracks().forEach((t) => t.stop());
-      }
-      if (isMuted) {
-        fallbackStream.getAudioTracks().forEach((t) => { t.enabled = false; });
-      }
-      localStream = fallbackStream;
-      replaceAudioTrackEverywhere(localStream.getAudioTracks()[0]);
-      startLocalAnalyser(localStream);
+      rawStream = await navigator.mediaDevices.getUserMedia({ audio: micConstraints(null) });
     } catch (err2) {
       console.error("[HiSam] Impossible de revenir au micro par defaut:", err2);
+      return;
     }
   }
+  await installMicStream(rawStream);
 }
 
 micSelect.addEventListener("change", () => {
@@ -488,13 +514,22 @@ function publishMicState() {
   db.ref(`users/${myId}/muted`).set(isMuted);
 }
 
+function releaseMicStreams() {
+  if (micProcessing) {
+    micProcessing.destroy();
+    micProcessing = null;
+  }
+  [localStream, rawMicStream].forEach((s) => {
+    if (s) s.getTracks().forEach((t) => t.stop());
+  });
+  localStream = null;
+  rawMicStream = null;
+}
+
 function stopMic() {
   db.ref(`users/${myId}/muted`).remove();
   stopLocalAnalyser();
-  if (localStream) {
-    localStream.getTracks().forEach((t) => t.stop());
-    localStream = null;
-  }
+  releaseMicStreams();
   isMuted = false;
   updateMuteBtn();
 }
@@ -869,7 +904,14 @@ function removeAudio(peerId) {
 
 function getOrCreateAudioContext() {
   if (!audioContext) {
-    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    // 48 kHz : impose par RNNoise (audio-processing.js). Les analyseurs s'en moquent,
+    // createMediaStreamSource reechantillonne tout seul.
+    try {
+      audioContext = new Ctx({ sampleRate: 48000 });
+    } catch (err) {
+      audioContext = new Ctx();
+    }
   }
   if (audioContext.state === "suspended") {
     audioContext.resume();
@@ -1432,9 +1474,7 @@ window.addEventListener("beforeunload", () => {
   saveLastPosition();
 
   Object.values(connections).forEach((call) => call.close());
-  if (localStream) {
-    localStream.getTracks().forEach((t) => t.stop());
-  }
+  releaseMicStreams();
 
   db.ref(`users/${myId}`).remove();
 });
