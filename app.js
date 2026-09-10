@@ -48,8 +48,10 @@ let peer = null;
 let localStream = null;
 let isMuted = false;
 let connections = {}; // peerId → MediaConnection
-const APP_VERSION = "video-2";
+const APP_VERSION = "video-3";
 const PEER_MAX_RECONNECT = 8;
+const RESYNC_INTERVAL_MS = 5000;
+let resyncTimer = null;
 let peerReconnectAttempts = 0;
 let peerReconnectTimer = null;
 const VIDEO_KINDS = ["camera", "screen"];
@@ -187,6 +189,7 @@ loginBtn.addEventListener("click", () => {
 
 function startApp() {
   console.log(`[HiSam] version ${APP_VERSION}`);
+  startResyncLoop();
   loginScreen.style.display = "none";
   mainScreen.style.display = "block";
   myNameEl.textContent = myName;
@@ -961,6 +964,7 @@ function setupPeer() {
 
   peer.on("call", (call) => {
     // Accept call if we share at least one room with the caller
+    call.__initiator = call.peer; // c'est lui qui appelle
     const metadata = call.metadata || {};
     const callerRoomId = metadata.roomId;
 
@@ -1036,24 +1040,44 @@ function schedulePeerReconnect() {
   }, delay);
 }
 
+// Quand A et B rejoignent un salon en meme temps, chacun appelle l'autre : deux
+// connexions naissent pour la meme paire ("glare"). Si chaque cote garde
+// arbitrairement la derniere arrivee, les deux cotes ferment celle que l'autre
+// garde et il ne reste RIEN : A et B ne s'entendent plus, alors que C, arrive a
+// un autre moment, entend les deux. On tranche donc de facon identique des deux
+// cotes : la connexion initiee par le plus petit identifiant gagne.
 function setupCall(call) {
-  // Deduplicate: if we already have a connection to this peer, close the old one
-  if (connections[call.peer] && connections[call.peer] !== call) {
-    connections[call.peer].close();
+  const existing = connections[call.peer];
+  const duplicate = existing && existing !== call;
+
+  if (duplicate) {
+    const sameInitiator = existing.__initiator === call.__initiator;
+    // Meme initiateur = simple reprise, la nouvelle remplace l'ancienne.
+    // Initiateurs differents = appels croises, le plus petit id l'emporte.
+    const keepNew = sameInitiator || call.__initiator < existing.__initiator;
+    if (!keepNew) {
+      call.close();
+      return;
+    }
   }
 
   call.on("stream", (remoteStream) => {
     addAudio(call.peer, remoteStream);
   });
-  call.on("close", () => {
+  // Ne nettoyer que si la connexion fermee est bien celle en service : la
+  // fermeture d'un doublon perdant ne doit pas couper la connexion gagnante.
+  const done = () => {
+    if (connections[call.peer] !== call) return;
     removeAudio(call.peer);
     delete connections[call.peer];
-  });
-  call.on("error", () => {
-    removeAudio(call.peer);
-    delete connections[call.peer];
-  });
+  };
+  call.on("close", done);
+  call.on("error", done);
+
+  // Installer la gagnante AVANT de fermer la perdante : close() emet son
+  // evenement de facon synchrone, et le garde ci-dessus doit deja voir la neuve.
   connections[call.peer] = call;
+  if (duplicate) existing.close();
 }
 
 function addAudio(peerId, stream) {
@@ -1224,7 +1248,7 @@ function sharesAnyRoom(peerId) {
 }
 
 function connectToPeersInRoom(roomId) {
-  if (!localStream || !peer) return;
+  if (!localStream || !peer || peer.disconnected) return;
 
   Object.entries(allUsers).forEach(([id, user]) => {
     if (id === myId || !user.online) return;
@@ -1234,12 +1258,18 @@ function connectToPeersInRoom(roomId) {
     if (connections[id] && connections[id].open) return;
 
     const call = peer.call(id, localStream, { metadata: { roomId } });
-    if (call) setupCall(call);
+    if (call) {
+      call.__initiator = myId;
+      setupCall(call);
+    }
   });
 }
 
 function syncConnections() {
   if (!localStream || !peer || Object.keys(myActiveRooms).length === 0) return;
+  // Inutile d'appeler pendant une coupure du serveur de signalisation :
+  // peer.call() renvoie undefined et ne fait qu'empiler des erreurs.
+  if (peer.disconnected) return;
 
   // Connect to peers we share a room with but aren't connected to
   Object.entries(allUsers).forEach(([id, user]) => {
@@ -1254,11 +1284,26 @@ function syncConnections() {
         (roomId) => user.activeRooms[roomId]
       );
       const call = peer.call(id, localStream, { metadata: { roomId: sharedRoomId } });
-      if (call) setupCall(call);
+      if (call) {
+        call.__initiator = myId;
+        setupCall(call);
+      }
     }
   });
 
   syncVideoCalls();
+}
+
+// syncConnections() n'est declenche que par un changement dans Firebase. Or le
+// serveur de signalisation public coupe regulierement : un appel rate pendant
+// une coupure n'etait jamais retente, laissant deux personnes muettes l'une
+// pour l'autre. Ce filet de securite rattrape ces trous.
+function startResyncLoop() {
+  if (resyncTimer) return;
+  resyncTimer = setInterval(() => {
+    if (Object.keys(myActiveRooms).length === 0) return;
+    syncConnections();
+  }, RESYNC_INTERVAL_MS);
 }
 
 function cleanupConnections() {
@@ -1347,7 +1392,7 @@ function updateShareBtns() {
 
 // Appelle chaque personne avec qui je partage un salon, pour chaque flux que j'envoie
 function syncVideoCalls() {
-  if (!peer) return;
+  if (!peer || peer.disconnected) return;
   VIDEO_KINDS.forEach((kind) => {
     const stream = videoStreams[kind];
     if (!stream) return;
@@ -1439,7 +1484,8 @@ function setupIncomingVideoCall(call, kind) {
     addVideo(call.peer, kind, remoteStream, user ? user.name : "?");
   });
   const done = () => {
-    if (remoteVideoCalls[key] === call) delete remoteVideoCalls[key];
+    if (remoteVideoCalls[key] !== call) return; // doublon perdant : ne rien toucher
+    delete remoteVideoCalls[key];
     removeVideo(call.peer, kind);
   };
   call.on("close", done);
