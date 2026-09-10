@@ -299,6 +299,143 @@ def _hightable(part):
     return im
 
 
+# ---------------------------------------------------------------------------
+# Coin salon : fauteuils cuir marron, canapes et table basse
+# Les meubles multi-cases sont dessines d'un seul tenant puis decoupes, ce qui
+# evite les raccords approximatifs d'une tuile a l'autre.
+# ---------------------------------------------------------------------------
+
+LEATHER = (124, 74, 42)      # dossiers et accoudoirs, dans l'ombre
+LEATHER_HI = (190, 122, 70)  # coussins d'assise, en pleine lumiere
+LEATHER_LO = (86, 50, 26)    # creux entre deux coussins
+FRAME = (120, 84, 54)
+FRAME_HI = (156, 116, 76)
+FRAME_LO = (68, 46, 30)
+RUG = (86, 116, 118)
+RUG_DARK = (52, 78, 82)
+RUG_LIGHT = (132, 162, 158)
+
+
+def _a(c):
+    return c + (255,)
+
+
+_PIECE_CACHE = {}
+
+
+def _piece(draw_fn, w, h):
+    """Dessine un meuble de w x h cases et renvoie l'image complete (en cache)."""
+    key = (draw_fn, w, h)
+    im = _PIECE_CACHE.get(key)
+    if im is None:
+        im = Image.new("RGBA", (w * T, h * T), (0, 0, 0, 0))
+        draw_fn(ImageDraw.Draw(im))
+        _PIECE_CACHE[key] = im
+    return im
+
+
+def _cut(draw_fn, w, h, cx, cy, mirror=False):
+    """Une case (cx, cy) d'un meuble de w x h cases, eventuellement en miroir."""
+    im = _piece(draw_fn, w, h)
+    if mirror:
+        im = im.transpose(Image.FLIP_LEFT_RIGHT)
+        cx = w - 1 - cx
+    return im.crop((cx * T, cy * T, cx * T + T, cy * T + T))
+
+
+def _draw_armchair_down(d):
+    """Fauteuil club : dossier au nord, on s'y assoit face au sud."""
+    d.rectangle([3, 13, 4, 15], fill=_a(FRAME_LO))                          # pieds
+    d.rectangle([11, 13, 12, 15], fill=_a(FRAME_LO))
+    d.rectangle([2, 1, 13, 6], fill=_a(LEATHER), outline=_a(FRAME_LO))      # dossier
+    d.line([(3, 2), (12, 2)], fill=_a(LEATHER_HI))
+    d.rectangle([1, 5, 4, 13], fill=_a(LEATHER), outline=_a(FRAME_LO))      # accoudoirs
+    d.rectangle([11, 5, 14, 13], fill=_a(LEATHER), outline=_a(FRAME_LO))
+    d.rectangle([4, 6, 11, 12], fill=_a(LEATHER_HI), outline=_a(FRAME_LO))  # coussin
+    d.line([(5, 9), (10, 9)], fill=_a(LEATHER_LO))
+
+
+def _draw_armchair_up(d):
+    """Meme fauteuil vu de dos : on s'y assoit face au nord."""
+    d.rectangle([3, 13, 4, 15], fill=_a(FRAME_LO))
+    d.rectangle([11, 13, 12, 15], fill=_a(FRAME_LO))
+    d.rectangle([4, 2, 11, 8], fill=_a(LEATHER_HI), outline=_a(FRAME_LO))   # coussin qui depasse
+    d.rectangle([1, 4, 4, 13], fill=_a(LEATHER), outline=_a(FRAME_LO))      # accoudoirs
+    d.rectangle([11, 4, 14, 13], fill=_a(LEATHER), outline=_a(FRAME_LO))
+    d.rectangle([2, 7, 13, 13], fill=_a(LEATHER), outline=_a(FRAME_LO))     # dossier de dos
+    d.line([(3, 8), (12, 8)], fill=_a(LEATHER_HI))
+
+
+def _draw_armchair_right(d):
+    """Meme fauteuil de profil : dossier a l'ouest, on s'y assoit face a l'est."""
+    d.rectangle([2, 13, 3, 15], fill=_a(FRAME_LO))
+    d.rectangle([11, 13, 12, 15], fill=_a(FRAME_LO))
+    d.rectangle([1, 2, 5, 13], fill=_a(LEATHER), outline=_a(FRAME_LO))      # dossier
+    d.line([(2, 3), (2, 12)], fill=_a(LEATHER_HI))
+    d.rectangle([5, 1, 14, 4], fill=_a(LEATHER), outline=_a(FRAME_LO))      # accoudoirs
+    d.rectangle([5, 11, 14, 14], fill=_a(LEATHER), outline=_a(FRAME_LO))
+    d.rectangle([5, 4, 13, 11], fill=_a(LEATHER_HI), outline=_a(FRAME_LO))  # coussin
+    d.line([(9, 5), (9, 10)], fill=_a(LEATHER_LO))
+
+
+def _draw_sofa_up(d):
+    """Canape trois places vu de dos : on s'y assoit face au nord."""
+    for x in (2, 22, 42):                                                   # pieds
+        d.rectangle([x, 13, x + 3, 15], fill=_a(FRAME_LO))
+    d.rectangle([4, 1, 43, 7], fill=_a(LEATHER_HI), outline=_a(FRAME_LO))   # coussins qui depassent
+    for x in (16, 17, 30, 31):
+        d.line([(x, 2), (x, 6)], fill=_a(LEATHER_LO))
+    d.rectangle([3, 6, 44, 13], fill=_a(LEATHER), outline=_a(FRAME_LO))     # dossier de dos
+    d.line([(4, 7), (43, 7)], fill=_a(LEATHER_HI))
+    d.rectangle([0, 3, 4, 13], fill=_a(LEATHER), outline=_a(FRAME_LO))      # accoudoirs
+    d.rectangle([43, 3, 47, 13], fill=_a(LEATHER), outline=_a(FRAME_LO))
+
+
+def _draw_sofa_east(d):
+    """Canape trois places de profil : dossier a l'ouest, on s'y assoit face a l'est."""
+    d.rectangle([2, 45, 4, 47], fill=_a(FRAME_LO))                          # pieds
+    d.rectangle([11, 45, 13, 47], fill=_a(FRAME_LO))
+    d.rectangle([1, 3, 5, 44], fill=_a(LEATHER), outline=_a(FRAME_LO))      # dossier
+    d.line([(4, 4), (4, 43)], fill=_a(LEATHER_LO))
+    d.rectangle([4, 1, 14, 5], fill=_a(LEATHER), outline=_a(FRAME_LO))      # accoudoirs
+    d.rectangle([4, 42, 14, 46], fill=_a(LEATHER), outline=_a(FRAME_LO))
+    d.rectangle([5, 5, 14, 42], fill=_a(LEATHER_HI), outline=_a(FRAME_LO))  # coussins
+    for y in (16, 17, 30, 31):
+        d.line([(6, y), (13, y)], fill=_a(LEATHER_LO))
+    for y in (7, 20, 33):
+        d.line([(7, y), (12, y)], fill=_a(WOOD_LIGHT))
+
+
+def _draw_lowtable(d):
+    """Table basse carree de deux cases de cote, plateau bois et pieds visibles."""
+    d.rectangle([6, 22, 9, 28], fill=_a(FRAME_LO))                          # pieds avant
+    d.rectangle([22, 22, 25, 28], fill=_a(FRAME_LO))
+    d.rectangle([2, 3, 29, 23], fill=_a(WOOD), outline=_a(FRAME_LO))        # plateau
+    d.line([(3, 4), (28, 4)], fill=_a(WOOD_LIGHT))
+    d.rectangle([2, 21, 29, 23], fill=_a(FRAME))                            # chant
+    d.rectangle([5, 7, 26, 18], outline=_a(FRAME_HI))                       # veine du plateau
+
+
+def _rug(edges):
+    """9-slice de tapis : edges = ensemble parmi {"t", "b", "l", "r"}."""
+    im = Image.new("RGBA", (T, T))
+    _fill_noise(im, RUG, 4, 21)
+    d = ImageDraw.Draw(im)
+    if "t" in edges:
+        d.line([(0, 0), (T - 1, 0)], fill=_a(RUG_DARK))
+        d.line([(0, 2), (T - 1, 2)], fill=_a(RUG_LIGHT))
+    if "b" in edges:
+        d.line([(0, T - 1), (T - 1, T - 1)], fill=_a(RUG_DARK))
+        d.line([(0, T - 3), (T - 1, T - 3)], fill=_a(RUG_LIGHT))
+    if "l" in edges:
+        d.line([(0, 0), (0, T - 1)], fill=_a(RUG_DARK))
+        d.line([(2, 0), (2, T - 1)], fill=_a(RUG_LIGHT))
+    if "r" in edges:
+        d.line([(T - 1, 0), (T - 1, T - 1)], fill=_a(RUG_DARK))
+        d.line([(T - 3, 0), (T - 3, T - 1)], fill=_a(RUG_LIGHT))
+    return im
+
+
 def gen_cabinet_front():
     """Facade de placards, sans plan dessus : prolonge le plan de travail d'une case."""
     im = Image.new("RGBA", (T, T))
@@ -385,6 +522,23 @@ GENERATORS = {
     "bigtable_tl": lambda: _bigtable("tl"), "bigtable_t": lambda: _bigtable("t"), "bigtable_tr": lambda: _bigtable("tr"),
     "bigtable_l": lambda: _bigtable("l"), "bigtable_c": lambda: _bigtable(""), "bigtable_r": lambda: _bigtable("r"),
     "bigtable_bl": lambda: _bigtable("bl"), "bigtable_b": lambda: _bigtable("b"), "bigtable_br": lambda: _bigtable("br"),
+    "armchair_down": lambda: _cut(_draw_armchair_down, 1, 1, 0, 0),
+    "armchair_up": lambda: _cut(_draw_armchair_up, 1, 1, 0, 0),
+    "armchair_right": lambda: _cut(_draw_armchair_right, 1, 1, 0, 0),
+    "armchair_left": lambda: _cut(_draw_armchair_right, 1, 1, 0, 0, mirror=True),
+    "sofa_up_l": lambda: _cut(_draw_sofa_up, 3, 1, 0, 0),
+    "sofa_up_m": lambda: _cut(_draw_sofa_up, 3, 1, 1, 0),
+    "sofa_up_r": lambda: _cut(_draw_sofa_up, 3, 1, 2, 0),
+    "sofa_east_t": lambda: _cut(_draw_sofa_east, 1, 3, 0, 0),
+    "sofa_east_m": lambda: _cut(_draw_sofa_east, 1, 3, 0, 1),
+    "sofa_east_b": lambda: _cut(_draw_sofa_east, 1, 3, 0, 2),
+    "lowtable_tl": lambda: _cut(_draw_lowtable, 2, 2, 0, 0),
+    "lowtable_tr": lambda: _cut(_draw_lowtable, 2, 2, 1, 0),
+    "lowtable_bl": lambda: _cut(_draw_lowtable, 2, 2, 0, 1),
+    "lowtable_br": lambda: _cut(_draw_lowtable, 2, 2, 1, 1),
+    "rug_tl": lambda: _rug("tl"), "rug_tm": lambda: _rug("t"), "rug_tr": lambda: _rug("tr"),
+    "rug_ml": lambda: _rug("l"), "rug_mm": lambda: _rug(""), "rug_mr": lambda: _rug("r"),
+    "rug_bl": lambda: _rug("bl"), "rug_bm": lambda: _rug("b"), "rug_br": lambda: _rug("br"),
 }
 
 # ---------------------------------------------------------------------------
@@ -446,10 +600,15 @@ MANIFEST = [
     # salon
     ("sofa_tl", ["indoor:286"]), ("sofa_tm", ["indoor:287"]), ("sofa_tr", ["indoor:288"]),
     ("sofa_bl", ["indoor:313"]), ("sofa_bm", ["indoor:314"]), ("sofa_br", ["indoor:315"]),
-    ("armchair_top", ["indoor:235"]), ("armchair_bottom", ["indoor:262"]),
-    ("rug_tl", ["gen:floor_marble", "indoor:250"]), ("rug_tm", ["gen:floor_marble", "indoor:251"]), ("rug_tr", ["gen:floor_marble", "indoor:252"]),
-    ("rug_ml", ["gen:floor_marble", "indoor:277"]), ("rug_mm", ["gen:floor_marble", "indoor:278"]), ("rug_mr", ["gen:floor_marble", "indoor:279"]),
-    ("rug_bl", ["gen:floor_marble", "indoor:304"]), ("rug_bm", ["gen:floor_marble", "indoor:305"]), ("rug_br", ["gen:floor_marble", "indoor:306"]),
+    ("armchair_down", ["gen:armchair_down"]), ("armchair_up", ["gen:armchair_up"]),
+    ("armchair_right", ["gen:armchair_right"]), ("armchair_left", ["gen:armchair_left"]),
+    ("sofa_up_l", ["gen:sofa_up_l"]), ("sofa_up_m", ["gen:sofa_up_m"]), ("sofa_up_r", ["gen:sofa_up_r"]),
+    ("sofa_east_t", ["gen:sofa_east_t"]), ("sofa_east_m", ["gen:sofa_east_m"]), ("sofa_east_b", ["gen:sofa_east_b"]),
+    ("lowtable_tl", ["gen:lowtable_tl"]), ("lowtable_tr", ["gen:lowtable_tr"]),
+    ("lowtable_bl", ["gen:lowtable_bl"]), ("lowtable_br", ["gen:lowtable_br"]),
+    ("rug_tl", ["gen:rug_tl"]), ("rug_tm", ["gen:rug_tm"]), ("rug_tr", ["gen:rug_tr"]),
+    ("rug_ml", ["gen:rug_ml"]), ("rug_mm", ["gen:rug_mm"]), ("rug_mr", ["gen:rug_mr"]),
+    ("rug_bl", ["gen:rug_bl"]), ("rug_bm", ["gen:rug_bm"]), ("rug_br", ["gen:rug_br"]),
     ("piano_l", ["indoor:239"]), ("piano_r", ["indoor:240"]),
     ("shelf_top", ["indoor:374"]), ("shelf_bottom", ["indoor:401"]),
     # cuisine

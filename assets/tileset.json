@@ -1,7 +1,7 @@
 {
  "tileSize": 16,
  "columns": 16,
- "count": 103,
+ "count": 115,
  "names": {
   "grass": 0,
   "pavement": 1,
@@ -69,43 +69,55 @@
   "sofa_bl": 63,
   "sofa_bm": 64,
   "sofa_br": 65,
-  "armchair_top": 66,
-  "armchair_bottom": 67,
-  "rug_tl": 68,
-  "rug_tm": 69,
-  "rug_tr": 70,
-  "rug_ml": 71,
-  "rug_mm": 72,
-  "rug_mr": 73,
-  "rug_bl": 74,
-  "rug_bm": 75,
-  "rug_br": 76,
-  "piano_l": 77,
-  "piano_r": 78,
-  "shelf_top": 79,
-  "shelf_bottom": 80,
-  "counter": 81,
-  "counter_cabinet": 82,
-  "counter_jars": 83,
-  "counter_bottles": 84,
-  "counter_sink": 85,
-  "counter_coffee": 86,
-  "counter_fruits": 87,
-  "stove": 88,
-  "fridge_top": 89,
-  "fridge_bottom": 90,
-  "water_cooler": 91,
-  "plant_a": 92,
-  "plant_b": 93,
-  "bush": 94,
-  "tree": 95,
-  "bin": 96,
-  "bin_orange": 97,
-  "bin_yellow": 98,
-  "bin_brown": 99,
-  "bin_blue": 100,
-  "cabinet_front": 101,
-  "crate": 102
+  "armchair_down": 66,
+  "armchair_up": 67,
+  "armchair_right": 68,
+  "armchair_left": 69,
+  "sofa_up_l": 70,
+  "sofa_up_m": 71,
+  "sofa_up_r": 72,
+  "sofa_east_t": 73,
+  "sofa_east_m": 74,
+  "sofa_east_b": 75,
+  "lowtable_tl": 76,
+  "lowtable_tr": 77,
+  "lowtable_bl": 78,
+  "lowtable_br": 79,
+  "rug_tl": 80,
+  "rug_tm": 81,
+  "rug_tr": 82,
+  "rug_ml": 83,
+  "rug_mm": 84,
+  "rug_mr": 85,
+  "rug_bl": 86,
+  "rug_bm": 87,
+  "rug_br": 88,
+  "piano_l": 89,
+  "piano_r": 90,
+  "shelf_top": 91,
+  "shelf_bottom": 92,
+  "counter": 93,
+  "counter_cabinet": 94,
+  "counter_jars": 95,
+  "counter_bottles": 96,
+  "counter_sink": 97,
+  "counter_coffee": 98,
+  "counter_fruits": 99,
+  "stove": 100,
+  "fridge_top": 101,
+  "fridge_bottom": 102,
+  "water_cooler": 103,
+  "plant_a": 104,
+  "plant_b": 105,
+  "bush": 106,
+  "tree": 107,
+  "bin": 108,
+  "bin_orange": 109,
+  "bin_yellow": 110,
+  "bin_brown": 111,
+  "bin_blue": 112,
+  "cabinet_front": 113,
+  "crate": 114
  },
  "sources": {
   "grass": [
@@ -320,47 +332,74 @@
   "sofa_br": [
    "indoor:315"
   ],
-  "armchair_top": [
-   "indoor:235"
+  "armchair_down": [
+   "gen:armchair_down"
   ],
-  "armchair_bottom": [
-   "indoor:262"
+  "armchair_up": [
+   "gen:armchair_up"
+  ],
+  "armchair_right": [
+   "gen:armchair_right"
+  ],
+  "armchair_left": [
+   "gen:armchair_left"
+  ],
+  "sofa_up_l": [
+   "gen:sofa_up_l"
+  ],
+  "sofa_up_m": [
+   "gen:sofa_up_m"
+  ],
+  "sofa_up_r": [
+   "gen:sofa_up_r"
+  ],
+  "sofa_east_t": [
+   "gen:sofa_east_t"
+  ],
+  "sofa_east_m": [
+   "gen:sofa_east_m"
+  ],
+  "sofa_east_b": [
+   "gen:sofa_east_b"
+  ],
+  "lowtable_tl": [
+   "gen:lowtable_tl"
+  ],
+  "lowtable_tr": [
+   "gen:lowtable_tr"
+  ],
+  "lowtable_bl": [
+   "gen:lowtable_bl"
+  ],
+  "lowtable_br": [
+   "gen:lowtable_br"
   ],
   "rug_tl": [
-   "gen:floor_marble",
-   "indoor:250"
+   "gen:rug_tl"
   ],
   "rug_tm": [
-   "gen:floor_marble",
-   "indoor:251"
+   "gen:rug_tm"
   ],
   "rug_tr": [
-   "gen:floor_marble",
-   "indoor:252"
+   "gen:rug_tr"
   ],
   "rug_ml": [
-   "gen:floor_marble",
-   "indoor:277"
+   "gen:rug_ml"
   ],
   "rug_mm": [
-   "gen:floor_marble",
-   "indoor:278"
+   "gen:rug_mm"
   ],
   "rug_mr": [
-   "gen:floor_marble",
-   "indoor:279"
+   "gen:rug_mr"
   ],
   "rug_bl": [
-   "gen:floor_marble",
-   "indoor:304"
+   "gen:rug_bl"
   ],
   "rug_bm": [
-   "gen:floor_marble",
-   "indoor:305"
+   "gen:rug_bm"
   ],
   "rug_br": [
-   "gen:floor_marble",
-   "indoor:306"
+   "gen:rug_br"
   ],
   "piano_l": [
    "indoor:239"

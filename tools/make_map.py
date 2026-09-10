@@ -75,6 +75,8 @@ for y in (8, 10, 12, 14, 16):
     obj[y][5] = "r"
     obj[y][12] = "q"
 put(obj, 8, 18, "uu")
+for k, y in enumerate(range(20, 23)):   # canape contre le mur ouest, assise vers l'est
+    obj[y][3] = "SIl"[k]
 obj[4][3] = "p"
 obj[4][14] = "P"
 obj[23][3] = "P"
@@ -93,15 +95,15 @@ zone[37][16] = "2"
 zone[38][16] = "2"
 obj[24][8] = "A"                    # tableau sur le mur nord
 obj[24][11] = "a"
-put(floor, 5, 33, "123")            # tapis 3x3 (sur fond bois)
-put(floor, 5, 34, "456")
-put(floor, 5, 35, "789")
-put(obj, 6, 35, "()")               # petite table ronde
-put(obj, 6, 36, "[]")
-obj[32][6] = "Z"                    # fauteuils
-obj[33][6] = "z"
-obj[35][9] = "Z"
-obj[36][9] = "z"
+put(floor, 4, 31, "122223")         # tapis 6x6 du coin salon
+for y in range(32, 36):
+    put(floor, 4, y, "455556")
+put(floor, 4, 36, "788889")
+put(obj, 6, 32, "GH")               # table basse carree
+put(obj, 6, 33, "NV")
+obj[32][5] = "s"                    # fauteuils tournes vers la table
+obj[32][8] = "g"
+put(obj, 6, 35, "LmR")              # canape sous la table, assise vers le nord
 obj[25][3] = "B"                    # etagere
 obj[26][3] = "b"
 obj[25][15] = "P"
@@ -286,7 +288,13 @@ const WORLD_MAP = {{
     "?": {{ tile: "bigtable_b_laptop", solid: true }},
     "(": {{ tile: "round_tl", solid: true }}, ")": {{ tile: "round_tr", solid: true }},
     "[": {{ tile: "round_bl", solid: true }}, "]": {{ tile: "round_br", solid: true }},
-    "Z": {{ tile: "armchair_top", solid: true }}, "z": {{ tile: "armchair_bottom", solid: true }},
+    // coin salon : la lettre dit vers ou regarde la personne assise
+    "d": {{ tile: "armchair_down", solid: false }}, "i": {{ tile: "armchair_up", solid: false }},
+    "s": {{ tile: "armchair_right", solid: false }}, "g": {{ tile: "armchair_left", solid: false }},
+    "L": {{ tile: "sofa_up_l", solid: false }}, "m": {{ tile: "sofa_up_m", solid: false }}, "R": {{ tile: "sofa_up_r", solid: false }},
+    "S": {{ tile: "sofa_east_t", solid: false }}, "I": {{ tile: "sofa_east_m", solid: false }}, "l": {{ tile: "sofa_east_b", solid: false }},
+    "G": {{ tile: "lowtable_tl", solid: true }}, "H": {{ tile: "lowtable_tr", solid: true }},
+    "N": {{ tile: "lowtable_bl", solid: true }}, "V": {{ tile: "lowtable_br", solid: true }},
     "B": {{ tile: "shelf_top", solid: true }}, "b": {{ tile: "shelf_bottom", solid: true }},
     "k": {{ tile: "counter", solid: true }},
     "K": {{ tile: "counter_cabinet", solid: true }},
