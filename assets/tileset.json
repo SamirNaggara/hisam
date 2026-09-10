@@ -1,7 +1,7 @@
 {
  "tileSize": 16,
  "columns": 16,
- "count": 73,
+ "count": 103,
  "names": {
   "grass": 0,
   "pavement": 1,
@@ -10,72 +10,102 @@
   "floor_wood": 4,
   "floor_tile": 5,
   "mat": 6,
-  "wall_top": 7,
-  "wall_face": 8,
-  "wall_window": 9,
-  "wall_whiteboard": 10,
-  "wall_picture_a": 11,
-  "wall_picture_b": 12,
-  "wall_map": 13,
-  "door": 14,
-  "door_glass": 15,
-  "desk_pc": 16,
-  "desk_laptop": 17,
-  "desk_papers": 18,
-  "desk_plain": 19,
-  "chair_down": 20,
-  "chair_up": 21,
-  "chair_right": 22,
-  "chair_left": 23,
-  "chair_white_down": 24,
-  "chair_white_up": 25,
-  "table_tl": 26,
-  "table_tm": 27,
-  "table_tr": 28,
-  "table_bl": 29,
-  "table_bm": 30,
-  "table_br": 31,
-  "round_tl": 32,
-  "round_tr": 33,
-  "round_bl": 34,
-  "round_br": 35,
-  "sofa_tl": 36,
-  "sofa_tm": 37,
-  "sofa_tr": 38,
-  "sofa_bl": 39,
-  "sofa_bm": 40,
-  "sofa_br": 41,
-  "armchair_top": 42,
-  "armchair_bottom": 43,
-  "rug_tl": 44,
-  "rug_tm": 45,
-  "rug_tr": 46,
-  "rug_ml": 47,
-  "rug_mm": 48,
-  "rug_mr": 49,
-  "rug_bl": 50,
-  "rug_bm": 51,
-  "rug_br": 52,
-  "piano_l": 53,
-  "piano_r": 54,
-  "shelf_top": 55,
-  "shelf_bottom": 56,
-  "counter": 57,
-  "counter_cabinet": 58,
-  "counter_jars": 59,
-  "counter_bottles": 60,
-  "counter_sink": 61,
-  "counter_coffee": 62,
-  "stove": 63,
-  "fridge_top": 64,
-  "fridge_bottom": 65,
-  "water_cooler": 66,
-  "plant_a": 67,
-  "plant_b": 68,
-  "bush": 69,
-  "tree": 70,
-  "bin": 71,
-  "crate": 72
+  "void": 7,
+  "floor_marble": 8,
+  "wall_top": 9,
+  "wall_face": 10,
+  "wall_window": 11,
+  "wall_whiteboard": 12,
+  "wall_picture_a": 13,
+  "wall_picture_b": 14,
+  "wall_map": 15,
+  "door": 16,
+  "door_glass": 17,
+  "wall_screen": 18,
+  "elevator": 19,
+  "elev_door_top": 20,
+  "elev_door_bottom": 21,
+  "desk_pc": 22,
+  "desk_laptop": 23,
+  "desk_papers": 24,
+  "desk_plain": 25,
+  "chair_down": 26,
+  "chair_up": 27,
+  "chair_right": 28,
+  "chair_left": 29,
+  "chair_white_down": 30,
+  "chair_white_up": 31,
+  "hightable": 32,
+  "hightable_l": 33,
+  "hightable_m": 34,
+  "hightable_r": 35,
+  "tv_l": 36,
+  "tv_m": 37,
+  "tv_r": 38,
+  "bigtable_tl": 39,
+  "bigtable_t": 40,
+  "bigtable_tr": 41,
+  "bigtable_l": 42,
+  "bigtable_c": 43,
+  "bigtable_r": 44,
+  "bigtable_bl": 45,
+  "bigtable_b": 46,
+  "bigtable_br": 47,
+  "bigtable_t_laptop": 48,
+  "bigtable_b_laptop": 49,
+  "table_tl": 50,
+  "table_tm": 51,
+  "table_tr": 52,
+  "table_bl": 53,
+  "table_bm": 54,
+  "table_br": 55,
+  "round_tl": 56,
+  "round_tr": 57,
+  "round_bl": 58,
+  "round_br": 59,
+  "sofa_tl": 60,
+  "sofa_tm": 61,
+  "sofa_tr": 62,
+  "sofa_bl": 63,
+  "sofa_bm": 64,
+  "sofa_br": 65,
+  "armchair_top": 66,
+  "armchair_bottom": 67,
+  "rug_tl": 68,
+  "rug_tm": 69,
+  "rug_tr": 70,
+  "rug_ml": 71,
+  "rug_mm": 72,
+  "rug_mr": 73,
+  "rug_bl": 74,
+  "rug_bm": 75,
+  "rug_br": 76,
+  "piano_l": 77,
+  "piano_r": 78,
+  "shelf_top": 79,
+  "shelf_bottom": 80,
+  "counter": 81,
+  "counter_cabinet": 82,
+  "counter_jars": 83,
+  "counter_bottles": 84,
+  "counter_sink": 85,
+  "counter_coffee": 86,
+  "counter_fruits": 87,
+  "stove": 88,
+  "fridge_top": 89,
+  "fridge_bottom": 90,
+  "water_cooler": 91,
+  "plant_a": 92,
+  "plant_b": 93,
+  "bush": 94,
+  "tree": 95,
+  "bin": 96,
+  "bin_orange": 97,
+  "bin_yellow": 98,
+  "bin_brown": 99,
+  "bin_blue": 100,
+  "cabinet_front": 101,
+  "crate": 102
  },
  "sources": {
   "grass": [
@@ -98,6 +128,12 @@
   ],
   "mat": [
    "gen:mat"
+  ],
+  "void": [
+   "gen:void"
+  ],
+  "floor_marble": [
+   "gen:floor_marble"
   ],
   "wall_top": [
    "gen:wall_top"
@@ -133,6 +169,20 @@
    "gen:wall_face",
    "city:619"
   ],
+  "wall_screen": [
+   "gen:wall_face",
+   "gen:ov_screen"
+  ],
+  "elevator": [
+   "gen:wall_top",
+   "city:621"
+  ],
+  "elev_door_top": [
+   "gen:elev_door_top"
+  ],
+  "elev_door_bottom": [
+   "gen:elev_door_bottom"
+  ],
   "desk_pc": [
    "indoor:112",
    "gen:ov_monitor"
@@ -165,6 +215,62 @@
   ],
   "chair_white_up": [
    "indoor:217"
+  ],
+  "hightable": [
+   "indoor:113"
+  ],
+  "hightable_l": [
+   "gen:hightable_l"
+  ],
+  "hightable_m": [
+   "gen:hightable_m"
+  ],
+  "hightable_r": [
+   "gen:hightable_r"
+  ],
+  "tv_l": [
+   "gen:tv_l"
+  ],
+  "tv_m": [
+   "gen:tv_m"
+  ],
+  "tv_r": [
+   "gen:tv_r"
+  ],
+  "bigtable_tl": [
+   "gen:bigtable_tl"
+  ],
+  "bigtable_t": [
+   "gen:bigtable_t"
+  ],
+  "bigtable_tr": [
+   "gen:bigtable_tr"
+  ],
+  "bigtable_l": [
+   "gen:bigtable_l"
+  ],
+  "bigtable_c": [
+   "gen:bigtable_c"
+  ],
+  "bigtable_r": [
+   "gen:bigtable_r"
+  ],
+  "bigtable_bl": [
+   "gen:bigtable_bl"
+  ],
+  "bigtable_b": [
+   "gen:bigtable_b"
+  ],
+  "bigtable_br": [
+   "gen:bigtable_br"
+  ],
+  "bigtable_t_laptop": [
+   "gen:bigtable_t",
+   "gen:ov_laptop"
+  ],
+  "bigtable_b_laptop": [
+   "gen:bigtable_b",
+   "gen:ov_laptop"
   ],
   "table_tl": [
    "indoor:0"
@@ -221,39 +327,39 @@
    "indoor:262"
   ],
   "rug_tl": [
-   "gen:floor_wood",
+   "gen:floor_marble",
    "indoor:250"
   ],
   "rug_tm": [
-   "gen:floor_wood",
+   "gen:floor_marble",
    "indoor:251"
   ],
   "rug_tr": [
-   "gen:floor_wood",
+   "gen:floor_marble",
    "indoor:252"
   ],
   "rug_ml": [
-   "gen:floor_wood",
+   "gen:floor_marble",
    "indoor:277"
   ],
   "rug_mm": [
-   "gen:floor_wood",
+   "gen:floor_marble",
    "indoor:278"
   ],
   "rug_mr": [
-   "gen:floor_wood",
+   "gen:floor_marble",
    "indoor:279"
   ],
   "rug_bl": [
-   "gen:floor_wood",
+   "gen:floor_marble",
    "indoor:304"
   ],
   "rug_bm": [
-   "gen:floor_wood",
+   "gen:floor_marble",
    "indoor:305"
   ],
   "rug_br": [
-   "gen:floor_wood",
+   "gen:floor_marble",
    "indoor:306"
   ],
   "piano_l": [
@@ -287,6 +393,10 @@
    "indoor:324",
    "gen:ov_coffee"
   ],
+  "counter_fruits": [
+   "indoor:324",
+   "gen:ov_fruits"
+  ],
   "stove": [
    "indoor:392"
   ],
@@ -313,6 +423,21 @@
   ],
   "bin": [
    "city:144"
+  ],
+  "bin_orange": [
+   "city:143"
+  ],
+  "bin_yellow": [
+   "gen:bin_yellow"
+  ],
+  "bin_brown": [
+   "gen:bin_brown"
+  ],
+  "bin_blue": [
+   "gen:bin_blue"
+  ],
+  "cabinet_front": [
+   "gen:cabinet_front"
   ],
   "crate": [
    "city:676"

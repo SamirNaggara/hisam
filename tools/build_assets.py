@@ -188,6 +188,160 @@ def gen_coffee_overlay():
     return im
 
 
+def gen_void():
+    im = Image.new("RGBA", (T, T))
+    _fill_noise(im, (38, 36, 40), 2, 10)
+    return im
+
+
+def gen_screen_overlay():
+    """Ecran mural (salle de reunion)."""
+    im = Image.new("RGBA", (T, T), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    d.rectangle([0, 2, 15, 11], fill=(215, 215, 220, 255))
+    d.rectangle([1, 3, 14, 10], fill=(30, 32, 40, 255))
+    d.line([(2, 4), (7, 4)], fill=(70, 80, 100, 255))
+    d.rectangle([9, 4, 13, 8], fill=(60, 120, 150, 255))
+    d.line([(2, 6), (6, 6)], fill=(13, 148, 136, 255))
+    d.line([(2, 8), (7, 8)], fill=(90, 90, 110, 255))
+    return im
+
+
+WOOD = (196, 156, 104)
+WOOD_EDGE = (140, 104, 62)
+WOOD_LIGHT = (214, 178, 128)
+
+
+def _bigtable(edges):
+    """9-slice de grande table : edges = ensemble parmi {"t","b","l","r"}."""
+    im = Image.new("RGBA", (T, T))
+    _fill_noise(im, WOOD, 3, 11)
+    d = ImageDraw.Draw(im)
+    if "t" in edges:
+        d.line([(0, 0), (T - 1, 0)], fill=WOOD_EDGE + (255,))
+        d.line([(0, 1), (T - 1, 1)], fill=WOOD_LIGHT + (255,))
+    if "b" in edges:
+        d.rectangle([0, 13, T - 1, 15], fill=WOOD_EDGE + (255,))
+        d.line([(0, 12), (T - 1, 12)], fill=(120, 88, 52, 255))
+    if "l" in edges:
+        d.line([(0, 0), (0, T - 1)], fill=WOOD_EDGE + (255,))
+        d.line([(1, 1), (1, T - 1)], fill=WOOD_LIGHT + (255,))
+    if "r" in edges:
+        d.line([(T - 1, 0), (T - 1, T - 1)], fill=WOOD_EDGE + (255,))
+    return im
+
+
+def gen_fruits_overlay():
+    im = Image.new("RGBA", (T, T), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    d.ellipse([3, 6, 12, 11], fill=(120, 80, 50, 255))
+    d.rectangle([4, 8, 11, 11], fill=(120, 80, 50, 255))
+    for (x, y, c) in ((5, 5, (220, 60, 50)), (8, 4, (240, 170, 40)), (10, 6, (110, 180, 60)), (7, 7, (240, 100, 40))):
+        d.ellipse([x, y, x + 2, y + 2], fill=c + (255,))
+    return im
+
+
+def gen_floor_marble():
+    """Sol clair et chic pour les salles de reunion."""
+    im = Image.new("RGBA", (T, T))
+    _fill_noise(im, (236, 234, 228), 2, 12)
+    d = ImageDraw.Draw(im)
+    d.line([(0, 15), (T - 1, 15)], fill=(214, 210, 200, 255))
+    d.line([(15, 0), (15, T - 1)], fill=(214, 210, 200, 255))
+    d.line([(2, 11), (7, 4)], fill=(222, 218, 210, 255))
+    d.line([(9, 13), (13, 8)], fill=(224, 220, 212, 255))
+    return im
+
+
+def _tv(part):
+    """Grande tele sur pied, plusieurs tuiles de large (part = "l", "m" ou "r")."""
+    im = Image.new("RGBA", (T, T), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    x0 = 1 if part == "l" else 0
+    x1 = T - 2 if part == "r" else T - 1
+    d.rectangle([x0, 1, x1, 11], fill=(40, 40, 48, 255))          # cadre
+    sx0 = x0 + 1 if part == "l" else 0
+    sx1 = x1 - 1 if part == "r" else T - 1
+    d.rectangle([sx0, 2, sx1, 10], fill=(52, 110, 150, 255))       # dalle
+    if part == "l":
+        d.line([(sx0 + 1, 3), (T - 1, 3)], fill=(140, 195, 225, 255))
+        d.rectangle([13, 12, 15, 13], fill=(60, 60, 70, 255))       # pied
+    elif part == "m":
+        d.line([(0, 3), (T - 1, 3)], fill=(140, 195, 225, 255))
+        d.rectangle([3, 5, 12, 8], fill=(80, 150, 190, 255))
+        d.rectangle([0, 12, 15, 13], fill=(60, 60, 70, 255))
+        d.rectangle([0, 14, 15, 14], fill=(90, 90, 100, 255))
+    else:
+        d.line([(0, 3), (sx1 - 1, 3)], fill=(140, 195, 225, 255))
+        d.rectangle([0, 12, 2, 13], fill=(60, 60, 70, 255))
+    return im
+
+
+HIGH = (112, 78, 52)
+HIGH_EDGE = (78, 52, 34)
+
+
+def _hightable(part):
+    """Table haute d'un seul tenant, 3 morceaux (l, m, r)."""
+    im = Image.new("RGBA", (T, T), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    x0 = 1 if part == "l" else 0
+    x1 = T - 2 if part == "r" else T - 1
+    d.rectangle([x0, 3, x1, 10], fill=HIGH + (255,))
+    d.line([(x0, 3), (x1, 3)], fill=(140, 100, 70, 255))
+    d.rectangle([x0, 10, x1, 11], fill=HIGH_EDGE + (255,))
+    if part == "l":
+        d.line([(x0, 3), (x0, 11)], fill=HIGH_EDGE + (255,))
+        d.rectangle([2, 12, 3, 15], fill=HIGH_EDGE + (255,))
+    if part == "r":
+        d.line([(x1, 3), (x1, 11)], fill=HIGH_EDGE + (255,))
+        d.rectangle([12, 12, 13, 15], fill=HIGH_EDGE + (255,))
+    return im
+
+
+def gen_cabinet_front():
+    """Facade de placards, sans plan dessus : prolonge le plan de travail d'une case."""
+    im = Image.new("RGBA", (T, T))
+    _fill_noise(im, (196, 152, 104), 3, 13)
+    d = ImageDraw.Draw(im)
+    d.line([(0, 0), (T - 1, 0)], fill=(150, 110, 70, 255))
+    d.rectangle([1, 2, 6, 13], outline=(150, 110, 70, 255))
+    d.rectangle([9, 2, 14, 13], outline=(150, 110, 70, 255))
+    d.point((5, 8), fill=(80, 60, 40, 255))
+    d.point((10, 8), fill=(80, 60, 40, 255))
+    d.rectangle([0, 14, T - 1, 15], fill=(120, 88, 56, 255))
+    return im
+
+
+def _bin(color):
+    """Poubelle de tri, rectangle de couleur avec couvercle."""
+    im = Image.new("RGBA", (T, T), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    dark = tuple(int(c * 0.7) for c in color)
+    d.rectangle([2, 4, 13, 14], fill=color + (255,), outline=dark + (255,))
+    d.rectangle([1, 2, 14, 4], fill=dark + (255,))
+    d.line([(4, 7), (11, 7)], fill=dark + (255,))
+    d.rectangle([6, 9, 9, 11], fill=dark + (255,))
+    return im
+
+
+def _elev_door(part):
+    """Battant de porte d'ascenseur a moitie ferme, vu de dessus.
+    part = "top" : battant qui descend du haut de la case ; "bottom" : qui monte du bas."""
+    im = Image.new("RGBA", (T, T), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    if part == "top":
+        y0, y1 = 0, 8
+    else:
+        y0, y1 = 7, 15
+    d.rectangle([0, y0, T - 1, y1], fill=(172, 178, 190, 255), outline=(96, 102, 116, 255))
+    d.line([(1, y0 + 1), (T - 2, y0 + 1)] if part == "bottom" else [(1, y1 - 1), (T - 2, y1 - 1)], fill=(120, 126, 140, 255))
+    d.line([(3, y0 + 2), (3, y1 - 2)], fill=(210, 214, 222, 255))      # reflet
+    edge = y1 if part == "top" else y0
+    d.line([(0, edge), (T - 1, edge)], fill=(60, 64, 76, 255))          # bord avant du battant
+    return im
+
+
 def gen_spawn_marker():
     im = Image.new("RGBA", (T, T), (0, 0, 0, 0))
     d = ImageDraw.Draw(im)
@@ -210,6 +364,21 @@ GENERATORS = {
     "ov_papers": gen_papers_overlay,
     "ov_whiteboard": gen_whiteboard_overlay,
     "ov_coffee": gen_coffee_overlay,
+    "void": gen_void,
+    "elev_door_top": lambda: _elev_door("top"),
+    "elev_door_bottom": lambda: _elev_door("bottom"),
+    "cabinet_front": gen_cabinet_front,
+    "bin_yellow": lambda: _bin((232, 190, 60)),
+    "bin_brown": lambda: _bin((140, 94, 60)),
+    "bin_blue": lambda: _bin((70, 120, 200)),
+    "floor_marble": gen_floor_marble,
+    "tv_l": lambda: _tv("l"), "tv_m": lambda: _tv("m"), "tv_r": lambda: _tv("r"),
+    "hightable_l": lambda: _hightable("l"), "hightable_m": lambda: _hightable("m"), "hightable_r": lambda: _hightable("r"),
+    "ov_screen": gen_screen_overlay,
+    "ov_fruits": gen_fruits_overlay,
+    "bigtable_tl": lambda: _bigtable("tl"), "bigtable_t": lambda: _bigtable("t"), "bigtable_tr": lambda: _bigtable("tr"),
+    "bigtable_l": lambda: _bigtable("l"), "bigtable_c": lambda: _bigtable(""), "bigtable_r": lambda: _bigtable("r"),
+    "bigtable_bl": lambda: _bigtable("bl"), "bigtable_b": lambda: _bigtable("b"), "bigtable_br": lambda: _bigtable("br"),
 }
 
 # ---------------------------------------------------------------------------
@@ -226,6 +395,8 @@ MANIFEST = [
     ("floor_wood", ["gen:floor_wood"]),
     ("floor_tile", ["gen:floor_tile"]),
     ("mat", ["gen:mat"]),
+    ("void", ["gen:void"]),
+    ("floor_marble", ["gen:floor_marble"]),
     # murs
     ("wall_top", ["gen:wall_top"]),
     ("wall_face", ["gen:wall_face"]),
@@ -236,6 +407,10 @@ MANIFEST = [
     ("wall_map", ["gen:wall_face", "indoor:371"]),
     ("door", ["gen:wall_face", "city:617"]),
     ("door_glass", ["gen:wall_face", "city:619"]),
+    ("wall_screen", ["gen:wall_face", "gen:ov_screen"]),
+    ("elevator", ["gen:wall_top", "city:621"]),
+    ("elev_door_top", ["gen:elev_door_top"]),
+    ("elev_door_bottom", ["gen:elev_door_bottom"]),
     # bureaux
     ("desk_pc", ["indoor:112", "gen:ov_monitor"]),
     ("desk_laptop", ["indoor:113", "gen:ov_laptop"]),
@@ -247,6 +422,15 @@ MANIFEST = [
     ("chair_left", ["indoor:57"]),
     ("chair_white_down", ["indoor:216"]),
     ("chair_white_up", ["indoor:217"]),
+    ("hightable", ["indoor:113"]),
+    ("hightable_l", ["gen:hightable_l"]), ("hightable_m", ["gen:hightable_m"]), ("hightable_r", ["gen:hightable_r"]),
+    ("tv_l", ["gen:tv_l"]), ("tv_m", ["gen:tv_m"]), ("tv_r", ["gen:tv_r"]),
+    # grandes tables (9-slice generee)
+    ("bigtable_tl", ["gen:bigtable_tl"]), ("bigtable_t", ["gen:bigtable_t"]), ("bigtable_tr", ["gen:bigtable_tr"]),
+    ("bigtable_l", ["gen:bigtable_l"]), ("bigtable_c", ["gen:bigtable_c"]), ("bigtable_r", ["gen:bigtable_r"]),
+    ("bigtable_bl", ["gen:bigtable_bl"]), ("bigtable_b", ["gen:bigtable_b"]), ("bigtable_br", ["gen:bigtable_br"]),
+    ("bigtable_t_laptop", ["gen:bigtable_t", "gen:ov_laptop"]),
+    ("bigtable_b_laptop", ["gen:bigtable_b", "gen:ov_laptop"]),
     # table de reunion 3x2
     ("table_tl", ["indoor:0"]), ("table_tm", ["indoor:1"]), ("table_tr", ["indoor:2"]),
     ("table_bl", ["indoor:27"]), ("table_bm", ["indoor:28"]), ("table_br", ["indoor:29"]),
@@ -257,9 +441,9 @@ MANIFEST = [
     ("sofa_tl", ["indoor:286"]), ("sofa_tm", ["indoor:287"]), ("sofa_tr", ["indoor:288"]),
     ("sofa_bl", ["indoor:313"]), ("sofa_bm", ["indoor:314"]), ("sofa_br", ["indoor:315"]),
     ("armchair_top", ["indoor:235"]), ("armchair_bottom", ["indoor:262"]),
-    ("rug_tl", ["gen:floor_wood", "indoor:250"]), ("rug_tm", ["gen:floor_wood", "indoor:251"]), ("rug_tr", ["gen:floor_wood", "indoor:252"]),
-    ("rug_ml", ["gen:floor_wood", "indoor:277"]), ("rug_mm", ["gen:floor_wood", "indoor:278"]), ("rug_mr", ["gen:floor_wood", "indoor:279"]),
-    ("rug_bl", ["gen:floor_wood", "indoor:304"]), ("rug_bm", ["gen:floor_wood", "indoor:305"]), ("rug_br", ["gen:floor_wood", "indoor:306"]),
+    ("rug_tl", ["gen:floor_marble", "indoor:250"]), ("rug_tm", ["gen:floor_marble", "indoor:251"]), ("rug_tr", ["gen:floor_marble", "indoor:252"]),
+    ("rug_ml", ["gen:floor_marble", "indoor:277"]), ("rug_mm", ["gen:floor_marble", "indoor:278"]), ("rug_mr", ["gen:floor_marble", "indoor:279"]),
+    ("rug_bl", ["gen:floor_marble", "indoor:304"]), ("rug_bm", ["gen:floor_marble", "indoor:305"]), ("rug_br", ["gen:floor_marble", "indoor:306"]),
     ("piano_l", ["indoor:239"]), ("piano_r", ["indoor:240"]),
     ("shelf_top", ["indoor:374"]), ("shelf_bottom", ["indoor:401"]),
     # cuisine
@@ -269,6 +453,7 @@ MANIFEST = [
     ("counter_bottles", ["indoor:329"]),
     ("counter_sink", ["indoor:330"]),
     ("counter_coffee", ["indoor:324", "gen:ov_coffee"]),
+    ("counter_fruits", ["indoor:324", "gen:ov_fruits"]),
     ("stove", ["indoor:392"]),
     ("fridge_top", ["indoor:416"]), ("fridge_bottom", ["indoor:443"]),
     ("water_cooler", ["city:567"]),
@@ -278,6 +463,11 @@ MANIFEST = [
     ("bush", ["city:514"]),
     ("tree", ["city:401"]),
     ("bin", ["city:144"]),
+    ("bin_orange", ["city:143"]),
+    ("bin_yellow", ["gen:bin_yellow"]),
+    ("bin_brown", ["gen:bin_brown"]),
+    ("bin_blue", ["gen:bin_blue"]),
+    ("cabinet_front", ["gen:cabinet_front"]),
     ("crate", ["city:676"]),
 ]
 

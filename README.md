@@ -19,6 +19,10 @@ Navigateur A  <-->  voix en pair a pair (WebRTC)  <-->  Navigateur B
 
 **Les conversations sont des groupes de proximité.** Deux personnes à moins de 2,5 cases l'une de l'autre sont reliées ; un lien existant tient jusqu'à 3,5 cases (pour éviter les coupures à la limite). Les groupes sont les composantes connexes : si A est près de B et B près de C, tous les trois se parlent. Les murs des salles de réunion coupent la voix : il faut passer la porte.
 
+## Les lieux
+
+La carte reproduit les locaux de l'Escalator : on arrive par les ascenseurs, on remonte le couloir jusqu'à l'open space et ses deux grandes tables de travail, les tables hautes, puis derrière la cloison le plan de travail café et fruits et le coin cuisine. Sur la gauche, la salle de réunion avec son écran et sa grande table, et en dessous la petite salle avec ses fauteuils. Les deux salles sont fermées : la voix ne passe pas leurs murs.
+
 ## Se déplacer
 
 Flèches, ZQSD ou WASD, ou un clic sur la case où aller. Le cercle autour de ton personnage montre la portée de ta voix ; les noms des gens avec qui tu parles passent en vert.

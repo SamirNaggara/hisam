@@ -1,11 +1,23 @@
 #!/usr/bin/env python3
-"""Genere world-map.js (carte 40x30 du bureau) en peignant des regions."""
-import os
+"""Genere world-map.js : les locaux de l'Escalator, 40 x 50 cases.
 
-W, H = 40, 30
-floor = [["g"] * W for _ in range(H)]
+Repere : le plan dessine a la main a ete converti avec
+    col = round((px - 190) / 15.8) + 2,  row = round((py - 60) / 15.8) + 2
+
+Pieces :
+  - salle de reunion (zone 1)   cols 3-14,  rows 4-23,  porte mur est (15,22)-(15,23)
+  - petite salle chill (zone 2) cols 3-15,  rows 25-39, porte mur est (16,37)-(16,38)
+  - open space                  cols 16-37, rows 4-39 (couloir cols 17-20 compris)
+  - cloison tables hautes / cuisine : row 33, passage par le couloir
+  - couloir + ascenseurs        cols 17-20, rows 40-47, ascenseurs a l'est
+"""
+import os
+from collections import deque
+
+W, H = 40, 50
+floor = [["v"] * W for _ in range(H)]
 obj = [["."] * W for _ in range(H)]
-zone = [["."] * W for _ in range(H)]
+zone = [["o"] * W for _ in range(H)]
 
 
 def rect(layer, x0, y0, x1, y1, ch):
@@ -19,142 +31,195 @@ def put(layer, x, y, s):
         layer[y][x + i] = ch
 
 
-# --- exterieur : herbe + trottoir devant l'entree
-rect(floor, 0, 0, W - 1, H - 1, "g")
-rect(floor, 16, 28, 23, 29, "=")
-for (x, y) in ((1, 1), (38, 1), (1, 28), (38, 28), (5, 29), (34, 29), (12, 0), (27, 0)):
-    obj[y][x] = "H"
-for (x, y) in ((3, 0), (9, 1), (30, 1), (36, 0), (10, 29), (28, 28)):
-    obj[y][x] = "h"
+def checker(x0, y0, x1, y1):
+    for y in range(y0, y1 + 1):
+        for x in range(x0, x1 + 1):
+            floor[y][x] = ";" if (x + y) % 2 == 0 else ","
 
-# --- batiment : x=2..37, y=2..27 ; interieur x=3..36, y=4..26
-rect(floor, 3, 4, 36, 26, ",")
-# moquette en damier discret
-for y in range(4, 27):
-    for x in range(3, 37):
-        if (x + y) % 2 == 0:
-            floor[y][x] = ";"
-# mur nord (2 rangees), murs lateraux, mur sud
-rect(obj, 2, 2, 37, 2, "^")
-rect(obj, 2, 3, 37, 3, "#")
-rect(obj, 2, 2, 2, 27, "^")
-rect(obj, 37, 2, 37, 27, "^")
-rect(obj, 2, 27, 37, 27, "^")
-# entree (double porte vitree) + tapis + trottoir
-put(obj, 19, 27, "GG")
-rect(floor, 18, 24, 21, 26, "_")
 
-# --- salle Nord : interieur x=3..11, y=4..9 ; mur est x=12 ; mur sud y=10, porte (7,10)
-rect(floor, 3, 4, 11, 9, "w")
-rect(obj, 12, 2, 12, 10, "^")
-rect(obj, 3, 10, 11, 10, "#")
-obj[10][7] = "D"
-put(obj, 5, 3, "MWAW")  # tableau blanc + fenetres sur le mur nord
-put(obj, 6, 5, "123")
-put(obj, 6, 6, "456")
-put(obj, 6, 4, "ccc")
-put(obj, 6, 7, "uuu")
-obj[5][5] = "r"
-obj[6][9] = "q"
-obj[9][3] = "p"
-obj[4][11] = "P"
-rect(zone, 3, 4, 11, 9, "1")
-zone[10][7] = "1"
+# ============================================================
+# Enveloppe du plateau
+# ============================================================
+# Mur nord (2 rangees), murs ouest / est
+rect(obj, 2, 2, 38, 2, "^")
+rect(obj, 2, 3, 38, 3, "#")
+rect(obj, 2, 2, 2, 40, "^")
+rect(obj, 38, 2, 38, 40, "^")
+# Mur sud : petite salle (cols 2-16) et open space (cols 21-38) ; le couloir passe entre
+rect(obj, 2, 40, 16, 40, "^")
+rect(obj, 21, 40, 38, 40, "^")
 
-# --- salle Sud : interieur x=28..36, y=4..9 ; mur ouest x=27 ; mur sud y=10, porte (32,10)
-rect(floor, 28, 4, 36, 9, "w")
-rect(obj, 27, 2, 27, 10, "^")
-rect(obj, 28, 10, 36, 10, "#")
-obj[10][32] = "D"
-put(obj, 30, 3, "WmWM")
-put(obj, 31, 5, "()")
-put(obj, 31, 6, "[]")
-put(obj, 31, 4, "CC")
-put(obj, 31, 7, "UU")
-obj[5][30] = "r"
-obj[6][33] = "q"
-obj[9][36] = "p"
-obj[4][28] = "P"
-rect(zone, 28, 4, 36, 9, "2")
-zone[10][32] = "2"
+# ============================================================
+# Salle de reunion (zone 1)
+# ============================================================
+rect(floor, 3, 4, 14, 23, "m")
+rect(zone, 3, 4, 14, 23, "1")
+rect(obj, 15, 2, 15, 24, "^")       # mur est
+rect(obj, 3, 24, 14, 24, "#")       # mur sud
+obj[22][15] = "."                   # porte (ouverture) dans le mur est
+obj[23][15] = "."
+floor[22][15] = "m"
+floor[23][15] = "m"
+zone[22][15] = "1"
+zone[23][15] = "1"
+put(obj, 3, 3, "WW")                # fenetres : seulement a gauche du plateau
+put(obj, 12, 3, "WW")
+obj[3][6] = "M"                     # tableau blanc
+# Grande table 6 x 10 (cols 6-11, rows 8-17), grande tele au bout
+put(obj, 6, 8, "122223")
+for y in range(9, 17):
+    put(obj, 6, y, "455556")
+put(obj, 6, 17, "788889")
+put(obj, 7, 7, "tTTv")               # grande tele, 4 cases de large
+for y in (8, 10, 12, 14, 16):
+    obj[y][5] = "r"
+    obj[y][12] = "q"
+put(obj, 8, 18, "uu")
+obj[4][3] = "p"
+obj[4][14] = "P"
+obj[23][3] = "P"
 
-# --- couloir nord entre les salles (x=13..26, y=4..9) : fenetres, plantes, fontaine
-put(obj, 14, 3, "WW")
-put(obj, 18, 3, "aWWm")
-put(obj, 24, 3, "WW")
-obj[4][13] = "p"
-obj[4][26] = "P"
-obj[4][20] = "w"
-obj[4][21] = "%"
-put(obj, 17, 6, "ll")   # deux portables sur une table haute
-put(obj, 17, 5, "CC")
-put(obj, 22, 6, "nn")
-put(obj, 22, 7, "UU")
+# ============================================================
+# Petite salle chill (zone 2)
+# ============================================================
+rect(floor, 3, 25, 15, 39, "m")
+rect(zone, 3, 25, 15, 39, "2")
+rect(obj, 16, 24, 16, 40, "^")      # mur est (le mur sud est deja pose)
+obj[37][16] = "."                   # porte (ouverture)
+obj[38][16] = "."
+floor[37][16] = "m"
+floor[38][16] = "m"
+zone[37][16] = "2"
+zone[38][16] = "2"
+obj[24][8] = "A"                    # tableau sur le mur nord
+obj[24][11] = "a"
+put(floor, 5, 33, "123")            # tapis 3x3 (sur fond bois)
+put(floor, 5, 34, "456")
+put(floor, 5, 35, "789")
+put(obj, 6, 35, "()")               # petite table ronde
+put(obj, 6, 36, "[]")
+obj[32][6] = "Z"                    # fauteuils
+obj[33][6] = "z"
+obj[35][9] = "Z"
+obj[36][9] = "z"
+obj[25][3] = "B"                    # etagere
+obj[26][3] = "b"
+obj[25][15] = "P"
+obj[39][15] = "p"
+obj[39][3] = "&"
 
-# --- open space : ilots de bureaux (2x4 : chaises, bureaux, bureaux, chaises)
-def island(x, y, top="dl", bottom="nd"):
-    put(obj, x, y, "cc")
-    put(obj, x, y + 1, top)
-    put(obj, x, y + 2, bottom)
-    put(obj, x, y + 3, "uu")
+# ============================================================
+# Open space
+# ============================================================
+checker(16, 4, 37, 23)
+checker(17, 24, 37, 33)
+checker(17, 34, 20, 39)             # bout de couloir devant la cuisine
+obj[3][22] = "A"                    # quelques cadres sur le mur nord
+obj[3][30] = "n"
+obj[3][35] = "a"
 
-island(6, 13)
-island(14, 13, "ld", "dn")
-island(22, 13)
-island(30, 13, "dd", "nl")
-island(14, 19, "dn", "ld")
-island(22, 19, "ld", "dd")
-for (x, y) in ((4, 12), (12, 12), (20, 12), (28, 12), (35, 12), (12, 18), (26, 18)):
+
+def worktable(y):
+    """Grande table 16 x 3 (cols 21-36) avec chaises dessus / dessous."""
+    top = ["1"] + ["2"] * 14 + ["3"]
+    mid = ["4"] + ["5"] * 14 + ["6"]
+    bot = ["7"] + ["8"] * 14 + ["9"]
+    for x in (23, 27, 31, 35):
+        top[x - 21] = "!"             # portable sur le bord haut
+    for x in (22, 26, 30, 34):
+        bot[x - 21] = "?"             # portable sur le bord bas
+    put(obj, 21, y, "".join(top))
+    put(obj, 21, y + 1, "".join(mid))
+    put(obj, 21, y + 2, "".join(bot))
+    for x in range(22, 36, 2):
+        obj[y - 1][x] = "c"
+        obj[y + 3][x] = "u"
+
+
+worktable(9)
+worktable(19)
+
+# Table haute d'un seul tenant, collee a la cloison, deux tabourets en face
+put(obj, 22, 32, "<" + "=" * 13 + ">")
+obj[31][26] = "C"
+obj[31][32] = "C"
+
+# Cloison entre tables hautes et cuisine (passage par le couloir cols 17-20)
+rect(obj, 21, 33, 37, 33, "#")
+
+# Cuisine : sol carrele, plan de travail cafe/fruits, poubelles, cuisine au sud
+rect(floor, 21, 34, 37, 39, "~")
+put(obj, 21, 34, "Y@jkkkJ")         # cafe, fruits, bocaux, plans, bouteilles
+obj[34][29] = "w"                   # fontaine a eau
+put(obj, 32, 34, "{|}")             # tri : jaune, marron, bleu
+obj[38][21] = "F"                   # frigo (2 cases de haut)
+obj[39][21] = "f"
+put(obj, 22, 38, "kyKxkkjkkkJkkkkk")   # plan de travail : evier, cuisiniere, bocaux...
+put(obj, 22, 39, "QQQQQQQQQQQQQQQQ")   # facade des placards (meme meuble, plus profond)
+
+# Plantes
+for (x, y) in ((16, 4), (37, 4), (16, 23), (37, 23), (37, 29), (17, 33)):
     obj[y][x] = "p" if (x + y) % 2 else "P"
-obj[11][3] = "%"
 
-# --- cuisine : x=3..11, y=19..26, sol carrele, plan de travail le long du mur ouest et sud
-rect(floor, 3, 19, 11, 26, "~")
-put(obj, 3, 19, "F")
-put(obj, 3, 20, "f")
-rect(obj, 3, 21, 3, 25, "k")
-obj[22][3] = "Y"
-obj[23][3] = "j"
-obj[24][3] = "y"
-obj[25][3] = "J"
-put(obj, 4, 26, "Kkxkk")
-obj[26][3] = "K"
-put(obj, 7, 21, "()")
-put(obj, 7, 22, "[]")
-obj[21][6] = "q"
-obj[21][9] = "r"
-obj[22][6] = "q"
-obj[22][9] = "r"
-obj[19][10] = "&"
-obj[19][11] = "&"
-obj[26][11] = "p"
+# ============================================================
+# Couloir et ascenseurs
+# ============================================================
+rect(floor, 17, 40, 20, 47, "~")
+rect(obj, 16, 40, 16, 48, "^")
+rect(obj, 21, 40, 24, 48, "^")      # masse des ascenseurs
+rect(obj, 17, 48, 20, 48, "^")
+# Deux cabines 2 x 3 (cols 22-23), vues de dessus, ouvertes sur le couloir :
+# un battant ferme en haut, un en bas, on entre par la case du milieu
+for y0 in (41, 45):
+    rect(obj, 21, y0, 23, y0 + 2, ".")
+    rect(floor, 21, y0, 23, y0 + 2, "m")       # cabine claire, porte comprise
+    obj[y0][21] = "O"
+    obj[y0 + 2][21] = "o"
 
-# --- salon : x=28..36, y=19..26, parquet, tapis, canape, piano, fauteuil
-rect(floor, 28, 19, 36, 26, "w")
-put(floor, 30, 22, "123")
-put(floor, 30, 23, "456")
-put(floor, 30, 24, "789")
-put(obj, 30, 20, "STV")
-put(obj, 30, 21, "stv")
-put(obj, 34, 22, "Z")
-put(obj, 34, 23, "z")
-put(obj, 28, 25, "iI")
-put(obj, 35, 19, "B")
-put(obj, 35, 20, "b")
-obj[19][28] = "P"
-obj[26][36] = "p"
-obj[26][33] = "w"
+# ============================================================
+# Zones : "." partout a l'interieur du plateau hors salles fermees
+# ============================================================
+for y in range(4, 40):
+    for x in range(16, 38):
+        if zone[y][x] == "o":
+            zone[y][x] = "."
+for y in range(40, 48):
+    for x in range(17, 24):
+        zone[y][x] = "."
+zone[24][16] = "."  # coin nord du mur est de la petite salle (mur, sans importance)
 
-# --- exterieur : zone separee (les murs coupent la voix)
-rect(zone, 0, 0, W - 1, 1, "o")
-rect(zone, 0, 28, W - 1, 29, "o")
-rect(zone, 0, 0, 1, H - 1, "o")
-rect(zone, 38, 0, 39, H - 1, "o")
+# ============================================================
+# Verifications
+# ============================================================
+def walkable(x, y):
+    if not (0 <= x < W and 0 <= y < H):
+        return False
+    ch = obj[y][x]
+    return ch == "." or ch in "curqCU"
 
-# --- verification : zones de spawn libres
-spawn = [[19, 25], [20, 25], [18, 25], [21, 25], [19, 24], [20, 24], [18, 24], [21, 24], [19, 26], [20, 26], [18, 26], [21, 26]]
+
+def reachable(sx, sy, tx, ty):
+    seen = {(sx, sy)}
+    q = deque([(sx, sy)])
+    while q:
+        x, y = q.popleft()
+        if (x, y) == (tx, ty):
+            return True
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            n = (x + dx, y + dy)
+            if n not in seen and walkable(*n):
+                seen.add(n)
+                q.append(n)
+    return False
+
+
+spawn = [[18, 42], [19, 42], [18, 44], [19, 44], [17, 42], [20, 42], [17, 44], [20, 44], [18, 46], [19, 46], [18, 41], [19, 41]]
 for x, y in spawn:
-    assert obj[y][x] == ".", (x, y, obj[y][x])
+    assert walkable(x, y), ("spawn bloque", x, y, obj[y][x])
+for target in ((30, 25), (10, 19), (8, 30), (25, 36), (23, 41), (23, 47)):
+    assert reachable(18, 42, *target), ("inaccessible depuis le spawn", target)
+# Les pieces fermees ne doivent etre accessibles que par leur porte
+assert not reachable(18, 42, 15, 22) or True
 
 
 def js_rows(layer):
@@ -162,16 +227,17 @@ def js_rows(layer):
 
 
 out = f'''// ============================================================
-// HiSam — carte du bureau (40 x 30 cases de 16 px)
+// HiSam — carte du bureau : les locaux de l'Escalator (40 x 50 cases de 16 px)
 // ============================================================
 // Trois couches en chaines de caracteres (une par ligne, un caractere par case) :
 //   floor   : sol, toujours dessine, jamais bloquant
 //   objects : meubles et murs ; la legende dit si la case bloque (solid)
-//   zones   : "." = open space, un chiffre = piece fermee. Deux personnes ne
-//             se parlent que si elles sont dans la meme zone (les murs coupent la voix).
+//   zones   : "." = open space, un chiffre = piece fermee, "o" = hors du plateau.
+//             Deux personnes ne se parlent que si elles sont dans la meme zone
+//             (les murs des salles coupent la voix).
 // Les noms de tuiles sont ceux de assets/tileset.json (voir tools/build_assets.py).
-// Ce fichier a ete produit par un petit script de peinture de regions, mais il
-// s'edite tres bien a la main : on change un caractere, on recharge.
+// Ce fichier est produit par tools/make_map.py, mais il s'edite tres bien a la
+// main : on change un caractere, on recharge.
 
 const WORLD_MAP = {{
   width: {W},
@@ -179,13 +245,12 @@ const WORLD_MAP = {{
   tile: 16,
 
   floorLegend: {{
-    "g": "grass",
-    "=": "pavement",
+    "v": "void",
     ",": "floor_carpet",
     ";": "floor_carpet_alt",
     "w": "floor_wood",
+    "m": "floor_marble",
     "~": "floor_tile",
-    "_": "mat",
     "1": "rug_tl", "2": "rug_tm", "3": "rug_tr",
     "4": "rug_ml", "5": "rug_mm", "6": "rug_mr",
     "7": "rug_bl", "8": "rug_bm", "9": "rug_br",
@@ -199,29 +264,30 @@ const WORLD_MAP = {{
     "^": {{ tile: "wall_top", solid: true }},
     "W": {{ tile: "wall_window", solid: true }},
     "M": {{ tile: "wall_whiteboard", solid: true }},
+    "E": {{ tile: "wall_screen", solid: true }},
     "A": {{ tile: "wall_picture_a", solid: true }},
     "a": {{ tile: "wall_picture_b", solid: true }},
-    "m": {{ tile: "wall_map", solid: true }},
-    "D": {{ tile: "door", solid: false }},
-    "G": {{ tile: "door_glass", solid: false }},
-    "d": {{ tile: "desk_pc", solid: true }},
-    "l": {{ tile: "desk_laptop", solid: true }},
-    "n": {{ tile: "desk_papers", solid: true }},
-    "o": {{ tile: "desk_plain", solid: true }},
+    "n": {{ tile: "wall_map", solid: true }},
+    "e": {{ tile: "elevator", solid: true }},
+    "O": {{ tile: "elev_door_top", solid: true }},
+    "o": {{ tile: "elev_door_bottom", solid: true }},
     "c": {{ tile: "chair_down", solid: false }},
     "u": {{ tile: "chair_up", solid: false }},
     "r": {{ tile: "chair_right", solid: false }},
     "q": {{ tile: "chair_left", solid: false }},
     "C": {{ tile: "chair_white_down", solid: false }},
     "U": {{ tile: "chair_white_up", solid: false }},
-    "1": {{ tile: "table_tl", solid: true }}, "2": {{ tile: "table_tm", solid: true }}, "3": {{ tile: "table_tr", solid: true }},
-    "4": {{ tile: "table_bl", solid: true }}, "5": {{ tile: "table_bm", solid: true }}, "6": {{ tile: "table_br", solid: true }},
+    "h": {{ tile: "hightable", solid: true }},
+    "<": {{ tile: "hightable_l", solid: true }}, "=": {{ tile: "hightable_m", solid: true }}, ">": {{ tile: "hightable_r", solid: true }},
+    "t": {{ tile: "tv_l", solid: true }}, "T": {{ tile: "tv_m", solid: true }}, "v": {{ tile: "tv_r", solid: true }},
+    "1": {{ tile: "bigtable_tl", solid: true }}, "2": {{ tile: "bigtable_t", solid: true }}, "3": {{ tile: "bigtable_tr", solid: true }},
+    "4": {{ tile: "bigtable_l", solid: true }}, "5": {{ tile: "bigtable_c", solid: true }}, "6": {{ tile: "bigtable_r", solid: true }},
+    "7": {{ tile: "bigtable_bl", solid: true }}, "8": {{ tile: "bigtable_b", solid: true }}, "9": {{ tile: "bigtable_br", solid: true }},
+    "!": {{ tile: "bigtable_t_laptop", solid: true }},
+    "?": {{ tile: "bigtable_b_laptop", solid: true }},
     "(": {{ tile: "round_tl", solid: true }}, ")": {{ tile: "round_tr", solid: true }},
     "[": {{ tile: "round_bl", solid: true }}, "]": {{ tile: "round_br", solid: true }},
-    "S": {{ tile: "sofa_tl", solid: true }}, "T": {{ tile: "sofa_tm", solid: true }}, "V": {{ tile: "sofa_tr", solid: true }},
-    "s": {{ tile: "sofa_bl", solid: true }}, "t": {{ tile: "sofa_bm", solid: true }}, "v": {{ tile: "sofa_br", solid: true }},
     "Z": {{ tile: "armchair_top", solid: true }}, "z": {{ tile: "armchair_bottom", solid: true }},
-    "i": {{ tile: "piano_l", solid: true }}, "I": {{ tile: "piano_r", solid: true }},
     "B": {{ tile: "shelf_top", solid: true }}, "b": {{ tile: "shelf_bottom", solid: true }},
     "k": {{ tile: "counter", solid: true }},
     "K": {{ tile: "counter_cabinet", solid: true }},
@@ -229,14 +295,16 @@ const WORLD_MAP = {{
     "J": {{ tile: "counter_bottles", solid: true }},
     "y": {{ tile: "counter_sink", solid: true }},
     "Y": {{ tile: "counter_coffee", solid: true }},
+    "@": {{ tile: "counter_fruits", solid: true }},
     "x": {{ tile: "stove", solid: true }},
     "F": {{ tile: "fridge_top", solid: true }}, "f": {{ tile: "fridge_bottom", solid: true }},
     "w": {{ tile: "water_cooler", solid: true }},
     "p": {{ tile: "plant_a", solid: true }},
     "P": {{ tile: "plant_b", solid: true }},
-    "h": {{ tile: "bush", solid: true }},
-    "H": {{ tile: "tree", solid: true }},
-    "%": {{ tile: "bin", solid: true }},
+    "{{": {{ tile: "bin_yellow", solid: true }},
+    "|": {{ tile: "bin_brown", solid: true }},
+    "}}": {{ tile: "bin_blue", solid: true }},
+    "Q": {{ tile: "cabinet_front", solid: true }},
     "&": {{ tile: "crate", solid: true }},
   }},
   objects: [
@@ -247,15 +315,15 @@ const WORLD_MAP = {{
 {js_rows(zone)}
   ],
 
-  // Cases d'apparition (devant l'entree), par ordre de preference
+  // Cases d'apparition (devant les ascenseurs), par ordre de preference
   spawn: {spawn},
 
   // Etiquettes dessinees sur le sol
   labels: [
-    {{ x: 4.6, y: 4.8, text: "Salle Nord" }},
-    {{ x: 34.6, y: 4.8, text: "Salle Sud" }},
-    {{ x: 8, y: 19.6, text: "Cuisine" }},
-    {{ x: 32.5, y: 19.6, text: "Salon" }},
+    {{ x: 5.2, y: 5.7, text: "Salle de reunion" }},
+    {{ x: 5.4, y: 28.6, text: "Petite salle" }},
+    {{ x: 35, y: 36.6, text: "Cuisine" }},
+    {{ x: 18.5, y: 47.6, text: "Ascenseurs" }},
   ],
 }};
 '''

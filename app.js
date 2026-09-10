@@ -54,7 +54,7 @@ let peer = null;
 let localStream = null;
 let isMuted = false;
 let connections = {}; // peerId → MediaConnection
-const APP_VERSION = "world-1";
+const APP_VERSION = "world-2";
 const PEER_MAX_RECONNECT = 8;
 const RESYNC_INTERVAL_MS = 5000;
 let resyncTimer = null;
@@ -120,9 +120,12 @@ const videoArea = document.getElementById("video-area");
 const videoGrid = document.getElementById("video-grid");
 
 // ---- Login ----
-// L'ecran de login reste affiche meme si le prenom est connu : le clic sur
-// "Entrer" est le geste utilisateur qui debloque le micro et la lecture audio.
+// Prenom et personnage deja choisis : on entre directement. Sinon l'ecran de
+// login s'affiche (et "Quitter le bureau" y ramene pour changer l'un ou l'autre).
 usernameInput.value = myName;
+if (myName && localStorage.getItem("hisam-avatar") !== null) {
+  startApp();
+}
 
 function currentAvatar() {
   const saved = localStorage.getItem("hisam-avatar");
@@ -170,6 +173,7 @@ loginBtn.addEventListener("click", () => {
 function startApp() {
   console.log(`[HiSam] version ${APP_VERSION}`);
   myAvatar = currentAvatar();
+  localStorage.setItem("hisam-avatar", String(myAvatar)); // memorise le choix (ou le defaut)
   startResyncLoop();
   loginScreen.style.display = "none";
   mainScreen.style.display = "flex";
