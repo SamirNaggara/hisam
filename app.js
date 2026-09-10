@@ -1,5 +1,5 @@
 // ============================================================
-// HiSam — Bureau virtuel audio (multi-salons)
+// HiSam — Bureau virtuel 2D avec chat vocal de proximite
 // ============================================================
 //
 // SETUP (5 min) :
@@ -16,9 +16,14 @@
 // 5. Remplace les valeurs dans FIREBASE_CONFIG
 //
 // Structure Firebase :
-//   /rooms/{roomId}  → { name, passwordHash, createdAt, createdBy, createdById }
-//   /users/{userId}  → { name, online, activeRooms: { roomId: true }, muted, ts }
-//   /logs/{pushId}   → { type, user, ts, [room] }
+//   /users/{userId}  → { name, online, avatar, muted, ts, pos: { x, y, dir } }
+//                      (pos = coordonnees de case dans le bureau, dir 0..3)
+//   /logs/{pushId}   → { type, user, ts, date }   (date = ts en clair, heure locale)
+//   /rooms               → ancien systeme de salons, plus utilise (peut etre supprime)
+//
+// Ce fichier est la couche reseau/audio : Firebase (annuaire, presence,
+// positions) + PeerJS (voix et video en pair a pair). Le rendu du bureau et la
+// logique de proximite sont dans world.js / world-map.js / proximity.js.
 //
 // ============================================================
 
@@ -44,11 +49,12 @@ if (!myId) {
 }
 
 let myName = localStorage.getItem("hisam-name") || "";
+let myAvatar = null;
 let peer = null;
 let localStream = null;
 let isMuted = false;
 let connections = {}; // peerId → MediaConnection
-const APP_VERSION = "video-3";
+const APP_VERSION = "world-1";
 const PEER_MAX_RECONNECT = 8;
 const RESYNC_INTERVAL_MS = 5000;
 let resyncTimer = null;
@@ -59,50 +65,31 @@ let videoStreams = { camera: null, screen: null }; // kind → MediaStream que j
 let videoCalls = { camera: {}, screen: {} }; // kind → peerId → MediaConnection sortante
 let remoteVideoCalls = {}; // `${peerId}-${kind}` → MediaConnection entrante
 
-const MIC_ON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>';
-const MIC_OFF_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="2" x2="22" y1="2" y2="22"/><path d="M18.89 13.23A7.12 7.12 0 0 0 19 12v-2"/><path d="M5 10v2a7 7 0 0 0 12 5"/><path d="M15 9.34V5a3 3 0 0 0-5.68-1.33"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12"/><line x1="12" x2="12" y1="19" y2="22"/></svg>';
-let myActiveRooms = {}; // roomId → true (rooms this TAB joined)
-let allRooms = {}; // roomId → { name, passwordHash, createdAt, createdBy }
-let allUsers = {}; // userId → { name, online, activeRooms, ts }
+let allUsers = {}; // userId → { name, online, avatar, muted, ts }
 let knownUsers = {}; // for notification diffing
 let initialLoadDone = false;
-let pendingJoinRoomId = null; // roomId waiting for password modal
-const REJOIN_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
 
-// Check if I'm in a room (this tab or another tab via Firebase)
-function isInRoom(roomId) {
-  return !!myActiveRooms[roomId] || !!(allUsers[myId]?.activeRooms?.[roomId]);
-}
-
-// All rooms I'm in (this tab + other tabs from Firebase)
-function getMyRoomIds() {
-  const firebaseRooms = allUsers[myId]?.activeRooms || {};
-  return [...new Set([...Object.keys(myActiveRooms), ...Object.keys(firebaseRooms)])];
-}
+// Monde
+let world = null;            // instance World
+let inOffice = false;        // entre enterOffice() et leaveOffice()
+let officeEntered = false;   // enterOffice() a deja ete lance (une seule fois par chargement)
+let peerBlocked = false;     // identifiant deja pris par un autre onglet
+let pendingIncoming = {};    // key → { call, kind, timer } : appels entrants en attente
+let lastInGroupAt = {};      // peerId → timestamp du dernier moment ou il etait dans mon groupe
+const POSITION_MIN_INTERVAL_MS = 120;  // ~8 ecritures/s max
+const PENDING_CALL_MS = 2000;
+const LEAVE_GRACE_MS = 1500;
+const LAST_POS_TTL_MS = 2 * 60 * 1000;
+const PEER_OPEN_TIMEOUT_MS = 6000;     // on entre quand meme si le broker PeerJS ne repond pas
 
 // Audio level analysers
 let audioContext = null;
 let localAnalyser = null;
 let localAnalyserSource = null;
 let localAnalyserRaf = null;
-let remoteAnalysers = {}; // peerId → { analyser, source, raf }
+let remoteAnalysers = {}; // peerId → { analyser, source }
 let remoteRafLoop = null;
 let faviconBlinkInterval = null;
-
-// Room passwords cached in localStorage
-function getCachedPasswords() {
-  try {
-    return JSON.parse(localStorage.getItem("hisam-room-passwords") || "{}");
-  } catch {
-    return {};
-  }
-}
-
-function setCachedPassword(roomId, hash) {
-  const cache = getCachedPasswords();
-  cache[roomId] = hash;
-  localStorage.setItem("hisam-room-passwords", JSON.stringify(cache));
-}
 
 // ---- DOM ----
 const loginScreen = document.getElementById("login-screen");
@@ -110,67 +97,60 @@ const mainScreen = document.getElementById("main-screen");
 const usernameInput = document.getElementById("username-input");
 const loginError = document.getElementById("login-error");
 const loginBtn = document.getElementById("login-btn");
+const avatarPicker = document.getElementById("avatar-picker");
 const myNameEl = document.getElementById("my-name");
 const onlineCount = document.getElementById("online-count");
 const onlineTooltip = document.getElementById("online-tooltip");
-const roomsList = document.getElementById("rooms-list");
-const createRoomBtn = document.getElementById("create-room-btn");
 const notifBtn = document.getElementById("notif-btn");
 const audioContainer = document.getElementById("audio-container");
+const worldCanvas = document.getElementById("world");
+const alreadyOpenEl = document.getElementById("already-open");
+const groupStatusEl = document.getElementById("group-status");
+const micWarningEl = document.getElementById("mic-warning");
 
 // Active bar
-const activeBar = document.getElementById("active-bar");
-const activeBarRooms = document.getElementById("active-bar-rooms");
 const globalMuteBtn = document.getElementById("global-mute-btn");
 const micIcon = document.getElementById("mic-icon");
 const micOffIcon = document.getElementById("mic-off-icon");
-const leaveAllBtn = document.getElementById("leave-all-btn");
+const leaveOfficeBtn = document.getElementById("leave-office-btn");
 const micSelect = document.getElementById("mic-select");
 const cameraBtn = document.getElementById("camera-btn");
 const screenBtn = document.getElementById("screen-btn");
 const videoArea = document.getElementById("video-area");
 const videoGrid = document.getElementById("video-grid");
 
-// Modal: Create Room
-const modalCreate = document.getElementById("modal-create");
-const createRoomNameInput = document.getElementById("create-room-name");
-const createRoomPasswordInput = document.getElementById("create-room-password");
-const createRoomError = document.getElementById("create-room-error");
-const createRoomCancel = document.getElementById("create-room-cancel");
-const createRoomConfirm = document.getElementById("create-room-confirm");
-
-// Modal: Password
-const modalPassword = document.getElementById("modal-password");
-const passwordRoomName = document.getElementById("password-room-name");
-const roomPasswordInput = document.getElementById("room-password-input");
-const roomPasswordError = document.getElementById("room-password-error");
-const passwordCancel = document.getElementById("password-cancel");
-const passwordConfirm = document.getElementById("password-confirm");
-
-// Modal: Settings
-const modalSettings = document.getElementById("modal-settings");
-const settingsRoomName = document.getElementById("settings-room-name");
-const settingsNewPassword = document.getElementById("settings-new-password");
-const settingsError = document.getElementById("settings-error");
-const settingsSuccess = document.getElementById("settings-success");
-const settingsCancel = document.getElementById("settings-cancel");
-const settingsSave = document.getElementById("settings-save");
-
-// ---- Hash helper (consistent across all browsers/contexts) ----
-async function sha256(text) {
-  let h1 = 5381, h2 = 52711;
-  for (let i = 0; i < text.length; i++) {
-    const c = text.charCodeAt(i);
-    h1 = ((h1 << 5) + h1 + c) >>> 0;
-    h2 = ((h2 << 5) + h2 + c) >>> 0;
-  }
-  return h1.toString(16).padStart(8, "0") + h2.toString(16).padStart(8, "0");
-}
-
 // ---- Login ----
-if (myName) {
-  startApp();  // skip login screen
+// L'ecran de login reste affiche meme si le prenom est connu : le clic sur
+// "Entrer" est le geste utilisateur qui debloque le micro et la lecture audio.
+usernameInput.value = myName;
+
+function currentAvatar() {
+  const saved = localStorage.getItem("hisam-avatar");
+  if (saved !== null && !Number.isNaN(Number(saved))) return Number(saved) % World.variantCount();
+  return World.avatarFor(myId);
 }
+
+function initAvatarPicker() {
+  World.loadCharacters().then(() => {
+    avatarPicker.innerHTML = "";
+    const selected = currentAvatar();
+    for (let v = 0; v < World.variantCount(); v++) {
+      const c = document.createElement("canvas");
+      c.width = 48;
+      c.height = 60;
+      c.title = `Personnage ${v + 1}`;
+      if (v === selected) c.classList.add("selected");
+      c.addEventListener("click", () => {
+        localStorage.setItem("hisam-avatar", String(v));
+        avatarPicker.querySelectorAll("canvas").forEach((el) => el.classList.remove("selected"));
+        c.classList.add("selected");
+      });
+      avatarPicker.appendChild(c);
+      World.drawAvatarPreview(c, v);
+    }
+  });
+}
+initAvatarPicker();
 
 usernameInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") loginBtn.click();
@@ -189,78 +169,24 @@ loginBtn.addEventListener("click", () => {
 
 function startApp() {
   console.log(`[HiSam] version ${APP_VERSION}`);
+  myAvatar = currentAvatar();
   startResyncLoop();
   loginScreen.style.display = "none";
-  mainScreen.style.display = "block";
+  mainScreen.style.display = "flex";
   myNameEl.textContent = myName;
   updateNotifBtn();
   setupPresence();
   setupPeer();
-  listenToRooms();
   listenToUsers();
   drawFavicon(false);
-  handleDeepLink();
-  handleAutoRejoin();
-}
-
-// ---- Deep link: #join=roomId ----
-function handleDeepLink() {
-  const hash = location.hash;
-  if (!hash.startsWith("#join=")) return;
-  const roomId = hash.slice(6);
-  if (!roomId) return;
-  // Clear hash so it doesn't re-trigger on reload
-  history.replaceState(null, "", location.pathname + location.search);
-  // Wait for rooms to load, then auto-join
-  const unsubscribe = db.ref("rooms/" + roomId).on("value", (snap) => {
-    if (snap.val()) {
-      db.ref("rooms/" + roomId).off("value", unsubscribe);
-      tryJoinRoom(roomId);
+  // On entre dans le bureau des que PeerJS est pret (voir setupPeer), ou apres
+  // un delai si le serveur de signalisation ne repond pas (sans audio).
+  setTimeout(() => {
+    if (!officeEntered && !peerBlocked) {
+      console.warn("[HiSam] PeerJS lent ou injoignable, entree dans le bureau sans attendre");
+      enterOffice();
     }
-  });
-}
-
-// ---- Auto-rejoin after refresh ----
-async function handleAutoRejoin() {
-  try {
-    const saved = JSON.parse(localStorage.getItem("hisam-active-session") || "null");
-    if (!saved) return;
-    localStorage.removeItem("hisam-active-session");
-
-    const age = Date.now() - saved.ts;
-    if (age > REJOIN_TIMEOUT_MS || !saved.rooms || saved.rooms.length === 0) return;
-
-    const snap = await db.ref("rooms").once("value");
-    const rooms = snap.val() || {};
-    const cached = getCachedPasswords();
-
-    for (const roomId of saved.rooms) {
-      if (rooms[roomId] && cached[roomId] && cached[roomId] === rooms[roomId].passwordHash) {
-        try {
-          await joinRoom(roomId);
-        } catch (e) {
-          console.warn("[HiSam] Auto-rejoin echoue pour", roomId, e);
-        }
-      }
-    }
-  } catch (e) {
-    console.warn("[HiSam] Auto-rejoin error:", e);
-    localStorage.removeItem("hisam-active-session");
-  }
-}
-
-function saveSessionForRejoin() {
-  const allMyRoomIds = getMyRoomIds();
-  if (allMyRoomIds.length > 0) {
-    localStorage.setItem("hisam-active-session", JSON.stringify({
-      rooms: allMyRoomIds,
-      ts: Date.now(),
-    }));
-  }
-}
-
-function clearSessionForRejoin() {
-  localStorage.removeItem("hisam-active-session");
+  }, PEER_OPEN_TIMEOUT_MS);
 }
 
 // ---- Notifications permission ----
@@ -290,57 +216,55 @@ function setupPresence() {
 
   connectedRef.on("value", (snap) => {
     if (snap.val() === true) {
-      // Use update (not set) to preserve activeRooms from other tabs
       userRef.update({
         name: myName,
         online: true,
+        avatar: myAvatar,
         ts: firebase.database.ServerValue.TIMESTAMP,
       });
       userRef.onDisconnect().remove();
-
-      // Re-write this tab's rooms (may have been lost by onDisconnect)
-      Object.keys(myActiveRooms).forEach((roomId) => {
-        db.ref(`users/${myId}/activeRooms/${roomId}`).set(true);
-      });
       publishMicState();
+      // Apres une coupure reseau, onDisconnect a pu effacer ma position
+      if (inOffice) republishPosition();
     }
   });
 
-  // Re-register if our entry is deleted by another tab's onDisconnect
+  // Re-register if our entry is deleted (e.g. by a stale onDisconnect)
   let reRegistering = false;
   userRef.on("value", (snap) => {
-    if (!snap.val() && myName && !reRegistering) {
+    if (!snap.val() && myName && inOffice && !reRegistering) {
       reRegistering = true;
       userRef.update({
         name: myName,
         online: true,
+        avatar: myAvatar,
         ts: firebase.database.ServerValue.TIMESTAMP,
       }).then(() => {
         userRef.onDisconnect().remove();
         publishMicState();
-        // Re-add rooms this tab has joined
-        Object.keys(myActiveRooms).forEach((roomId) => {
-          db.ref(`users/${myId}/activeRooms/${roomId}`).set(true);
-        });
+        republishPosition();
         reRegistering = false;
       });
     }
   });
 }
 
-// ---- Listen to rooms ----
-function listenToRooms() {
-  db.ref("rooms").on("value", (snap) => {
-    allRooms = snap.val() || {};
-    renderRooms();
+// ---- Logs ----
+// `ts` est l'horodatage serveur (pour trier), `date` la meme chose en clair,
+// en heure locale du navigateur qui ecrit : "2026-09-10 14:05:32".
+function writeLog(type, userName) {
+  db.ref("logs").push({
+    type,
+    user: userName,
+    ts: firebase.database.ServerValue.TIMESTAMP,
+    date: formatDate(new Date()),
   });
 }
 
-// ---- Logs ----
-function writeLog(type, userName, roomName) {
-  const entry = { type, user: userName, ts: firebase.database.ServerValue.TIMESTAMP };
-  if (roomName) entry.room = roomName;
-  db.ref("logs").push(entry);
+function formatDate(d) {
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ` +
+    `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
 // ---- Listen to users ----
@@ -351,39 +275,18 @@ function listenToUsers() {
     if (initialLoadDone) {
       Object.entries(users).forEach(([id, user]) => {
         const prev = knownUsers[id];
-
-        // Connexion / déconnexion
         if (!prev && user.online) {
           writeLog("connect", user.name);
+          if (id !== myId) notify(`${user.name} est arrive(e) au bureau`, "online");
         } else if (prev && prev.online && !user.online) {
           writeLog("disconnect", prev.name);
         } else if (prev && !prev.online && user.online) {
           writeLog("connect", user.name);
-        }
-
-        // Entrée / sortie de salon
-        if (prev && user.online) {
-          const prevRooms = prev.activeRooms || {};
-          const currRooms = user.activeRooms || {};
-          Object.keys(currRooms).forEach((roomId) => {
-            if (!prevRooms[roomId]) {
-              const roomName = allRooms[roomId]?.name || roomId;
-              writeLog("join", user.name, roomName);
-              if (id !== myId) {
-                notify(`${user.name} a rejoint ${roomName}`, "room");
-              }
-            }
-          });
-          Object.keys(prevRooms).forEach((roomId) => {
-            if (!currRooms[roomId]) {
-              const roomName = allRooms[roomId]?.name || roomId;
-              writeLog("leave", user.name, roomName);
-            }
-          });
+          if (id !== myId) notify(`${user.name} est arrive(e) au bureau`, "online");
         }
       });
 
-      // Utilisateur supprimé (déconnexion par onDisconnect().remove())
+      // Utilisateur supprime (deconnexion par onDisconnect().remove())
       Object.entries(knownUsers).forEach(([id, prev]) => {
         if (!users[id] && prev.online) {
           writeLog("disconnect", prev.name);
@@ -393,16 +296,42 @@ function listenToUsers() {
 
     knownUsers = {};
     Object.entries(users).forEach(([id, user]) => {
-      knownUsers[id] = { ...user, activeRooms: { ...(user.activeRooms || {}) } };
+      knownUsers[id] = { ...user };
     });
 
     if (!initialLoadDone) initialLoadDone = true;
 
     allUsers = users;
-    renderRooms();
-    updateOnlineCount();
-    syncConnections();
+
+    // Les positions changent jusqu'a 8 fois par seconde par personne : on ne
+    // refait le travail de presence que si elle a vraiment change.
+    const signature = Object.entries(users)
+      .map(([id, u]) => `${id}:${u.name}:${u.online}:${u.muted}:${u.avatar}`)
+      .sort().join("|");
+    const presenceChanged = signature !== lastPresenceSignature;
+    lastPresenceSignature = signature;
+
+    if (world) {
+      feedPositionsToWorld(users);
+      if (presenceChanged) world.recomputeGroups();  // les flags online participent au calcul
+    }
+    if (presenceChanged) {
+      updateOnlineCount();
+      updateGroupStatus();
+      syncConnections();
+    }
   });
+}
+
+let lastPresenceSignature = null;
+
+function feedPositionsToWorld(users) {
+  Object.entries(users).forEach(([id, u]) => {
+    if (id === myId) return;
+    if (u.pos && u.online) world.setRemote(id, u.pos);
+    else world.removeRemote(id);
+  });
+  world.forEachRemote((id) => { if (!users[id]) world.removeRemote(id); });
 }
 
 function updateOnlineCount() {
@@ -413,7 +342,7 @@ function updateOnlineCount() {
     onlineTooltip.innerHTML = '<div class="online-tooltip-empty">Personne en ligne</div>';
   } else {
     onlineTooltip.innerHTML = onlineUsers
-      .map((u) => `<div class="online-tooltip-item">${u.name}</div>`)
+      .map((u) => `<div class="online-tooltip-item">${escapeHtml(u.name || "?")}</div>`)
       .join("");
   }
 }
@@ -427,313 +356,34 @@ document.addEventListener("click", () => {
   onlineTooltip.classList.remove("visible");
 });
 
-// ---- Render rooms ----
-function renderRooms() {
-  const roomEntries = Object.entries(allRooms);
-
-  if (roomEntries.length === 0) {
-    roomsList.innerHTML = '<p class="empty-state">Aucun salon pour l\'instant...</p>';
-    return;
-  }
-
-  // Sort: rooms I'm in first, then by name
-  roomEntries.sort((a, b) => {
-    const aActive = isInRoom(a[0]);
-    const bActive = isInRoom(b[0]);
-    if (aActive && !bActive) return -1;
-    if (!aActive && bActive) return 1;
-    return a[1].name.localeCompare(b[1].name);
-  });
-
-  roomsList.innerHTML = roomEntries
-    .map(([roomId, room]) => {
-      const members = getRoomMembers(roomId);
-      const memberNames = members
-        .map((u) => `<span class="room-member${u.muted ? " muted" : ""}" title="${u.muted ? "Micro coupe" : "Micro actif"}">${u.muted ? MIC_OFF_SVG : MIC_ON_SVG}${escapeHtml(u.name)}</span>`)
-        .join("");
-      const isActive = isInRoom(roomId);
-
-      return `
-      <div class="room-card ${isActive ? "room-active" : ""}">
-        <div class="room-card-header">
-          <div class="room-info">
-            <span class="room-name">${escapeHtml(room.name)}</span>
-            <span class="room-count">${members.length} personne${members.length !== 1 ? "s" : ""}</span>
-          </div>
-          <div class="room-actions">
-            <button class="btn-room-action ${isActive ? "btn-leave" : "btn-join"}" data-room-id="${roomId}">
-              ${isActive ? "Quitter" : "Rejoindre"}
-            </button>
-            ${isActive && room.createdById === myId ? `<button class="btn-room-settings" data-room-id="${roomId}" title="Parametres">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
-            </button>` : ""}
-          </div>
-        </div>
-        ${members.length > 0 ? `<div class="room-members">${memberNames}</div>` : ""}
-      </div>`;
-    })
-    .join("");
-
-  // Attach event listeners
-  roomsList.querySelectorAll(".btn-room-action").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const roomId = btn.dataset.roomId;
-      if (isInRoom(roomId)) {
-        leaveRoom(roomId);
-      } else {
-        tryJoinRoom(roomId);
-      }
-    });
-  });
-
-  roomsList.querySelectorAll(".btn-room-settings").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      openSettingsModal(btn.dataset.roomId);
-    });
-  });
-
-  updateActiveBar();
-}
-
-function getRoomMembers(roomId) {
-  return Object.entries(allUsers)
-    .filter(([, u]) => u.online && u.activeRooms && u.activeRooms[roomId])
-    .map(([id, u]) => ({ id, name: u.name, muted: u.muted === true }));
-}
-
-// ---- Create Room Modal ----
-createRoomBtn.addEventListener("click", () => {
-  createRoomNameInput.value = "";
-  createRoomPasswordInput.value = "";
-  createRoomError.textContent = "";
-  modalCreate.style.display = "flex";
-  createRoomNameInput.focus();
-});
-
-createRoomCancel.addEventListener("click", () => {
-  modalCreate.style.display = "none";
-});
-
-modalCreate.addEventListener("click", (e) => {
-  if (e.target === modalCreate) modalCreate.style.display = "none";
-});
-
-createRoomNameInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") createRoomPasswordInput.focus();
-});
-
-createRoomPasswordInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") createRoomConfirm.click();
-});
-
-createRoomConfirm.addEventListener("click", async () => {
-  const name = createRoomNameInput.value.trim();
-  const password = createRoomPasswordInput.value;
-
-  if (!name) {
-    createRoomError.textContent = "Entre un nom pour le salon";
-    return;
-  }
-  if (!password) {
-    createRoomError.textContent = "Entre un mot de passe";
-    return;
-  }
-
-  createRoomConfirm.disabled = true;
-  createRoomConfirm.textContent = "Creation...";
-
+// ---- Micro ----
+async function acquireMic() {
+  if (localStream) return true;
   try {
-    const hash = await sha256(password);
-    const roomRef = db.ref("rooms").push();
-    await roomRef.set({
-      name: name,
-      passwordHash: hash,
-      createdAt: firebase.database.ServerValue.TIMESTAMP,
-      createdBy: myName,
-      createdById: myId,
-    });
-
-    // Cache the password for this room
-    setCachedPassword(roomRef.key, hash);
-
-    modalCreate.style.display = "none";
+    const savedMicId = localStorage.getItem("hisam-mic-id");
+    const audioConstraints = savedMicId
+      ? { deviceId: { exact: savedMicId } }
+      : true;
+    localStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
   } catch (err) {
-    createRoomError.textContent = "Erreur lors de la creation";
-  }
-
-  createRoomConfirm.disabled = false;
-  createRoomConfirm.textContent = "Creer";
-});
-
-// ---- Join Room (with password check) ----
-async function tryJoinRoom(roomId) {
-  const room = allRooms[roomId];
-  if (!room) return;
-
-  const cached = getCachedPasswords();
-  if (cached[roomId] && cached[roomId] === room.passwordHash) {
-    // Password already verified
-    await joinRoom(roomId);
-  } else {
-    // Need password
-    pendingJoinRoomId = roomId;
-    passwordRoomName.textContent = room.name;
-    roomPasswordInput.value = "";
-    roomPasswordError.textContent = "";
-    modalPassword.style.display = "flex";
-    roomPasswordInput.focus();
-  }
-}
-
-// ---- Password Modal ----
-passwordCancel.addEventListener("click", () => {
-  modalPassword.style.display = "none";
-  pendingJoinRoomId = null;
-});
-
-modalPassword.addEventListener("click", (e) => {
-  if (e.target === modalPassword) {
-    modalPassword.style.display = "none";
-    pendingJoinRoomId = null;
-  }
-});
-
-roomPasswordInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") passwordConfirm.click();
-});
-
-passwordConfirm.addEventListener("click", async () => {
-  const password = roomPasswordInput.value;
-  if (!password) {
-    roomPasswordError.textContent = "Entre le mot de passe";
-    return;
-  }
-
-  const roomId = pendingJoinRoomId;
-  const room = allRooms[roomId];
-  if (!room) {
-    roomPasswordError.textContent = "Salon introuvable";
-    return;
-  }
-
-  passwordConfirm.disabled = true;
-  passwordConfirm.textContent = "Verification...";
-
-  const hash = await sha256(password);
-  if (hash !== room.passwordHash) {
-    roomPasswordError.textContent = "Mauvais mot de passe";
-    passwordConfirm.disabled = false;
-    passwordConfirm.textContent = "Rejoindre";
-    return;
-  }
-
-  // Cache the password
-  setCachedPassword(roomId, hash);
-  modalPassword.style.display = "none";
-  pendingJoinRoomId = null;
-  passwordConfirm.disabled = false;
-  passwordConfirm.textContent = "Rejoindre";
-
-  await joinRoom(roomId);
-});
-
-// ---- Settings Modal ----
-let settingsRoomId = null;
-
-function openSettingsModal(roomId) {
-  settingsRoomId = roomId;
-  const room = allRooms[roomId];
-  if (!room) return;
-
-  settingsRoomName.textContent = room.name;
-  settingsNewPassword.value = "";
-  settingsError.textContent = "";
-  settingsSuccess.textContent = "";
-  modalSettings.style.display = "flex";
-  settingsNewPassword.focus();
-}
-
-settingsCancel.addEventListener("click", () => {
-  modalSettings.style.display = "none";
-  settingsRoomId = null;
-});
-
-modalSettings.addEventListener("click", (e) => {
-  if (e.target === modalSettings) {
-    modalSettings.style.display = "none";
-    settingsRoomId = null;
-  }
-});
-
-settingsNewPassword.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") settingsSave.click();
-});
-
-settingsSave.addEventListener("click", async () => {
-  const password = settingsNewPassword.value;
-  if (!password) {
-    settingsError.textContent = "Entre un nouveau mot de passe";
-    return;
-  }
-
-  settingsSave.disabled = true;
-  settingsSave.textContent = "Sauvegarde...";
-
-  try {
-    const hash = await sha256(password);
-    await db.ref(`rooms/${settingsRoomId}/passwordHash`).set(hash);
-    setCachedPassword(settingsRoomId, hash);
-    settingsError.textContent = "";
-    settingsSuccess.textContent = "Mot de passe mis a jour";
-    settingsNewPassword.value = "";
-  } catch (err) {
-    settingsError.textContent = "Erreur lors de la sauvegarde";
-    settingsSuccess.textContent = "";
-  }
-
-  settingsSave.disabled = false;
-  settingsSave.textContent = "Sauvegarder";
-});
-
-// ---- Join / Leave Room ----
-async function joinRoom(roomId) {
-  // Start mic if not already streaming
-  if (!localStream) {
+    // If exact deviceId fails, fallback to default
     try {
-      const savedMicId = localStorage.getItem("hisam-mic-id");
-      const audioConstraints = savedMicId
-        ? { deviceId: { exact: savedMicId } }
-        : true;
-      localStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
-      if (isMuted) {
-        localStream.getAudioTracks().forEach((t) => { t.enabled = false; });
-      }
-      startLocalAnalyser(localStream);
-      populateMicSelect();
-    } catch (err) {
-      // If exact deviceId fails, fallback to default
-      try {
-        localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        if (isMuted) {
-          localStream.getAudioTracks().forEach((t) => { t.enabled = false; });
-        }
-        startLocalAnalyser(localStream);
-        localStorage.removeItem("hisam-mic-id");
-        populateMicSelect();
-      } catch (err2) {
-        alert("Impossible d'acceder au micro. Verifie les permissions du navigateur.");
-        return;
-      }
+      localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      localStorage.removeItem("hisam-mic-id");
+    } catch (err2) {
+      console.warn("[HiSam] Micro indisponible, mode ecoute seule :", err2);
+      micWarningEl.style.display = "";
+      return false;
     }
   }
-
-  myActiveRooms[roomId] = true;
-  // Write only this room (don't overwrite other tabs' rooms)
-  await db.ref(`users/${myId}/activeRooms/${roomId}`).set(true);
+  if (isMuted) {
+    localStream.getAudioTracks().forEach((t) => { t.enabled = false; });
+  }
+  micWarningEl.style.display = "none";
+  startLocalAnalyser(localStream);
+  populateMicSelect();
   publishMicState();
-
-  renderRooms();
-  connectToPeersInRoom(roomId);
+  return true;
 }
 
 // ---- Microphone selector ----
@@ -760,6 +410,18 @@ async function populateMicSelect() {
   }
 }
 
+function replaceAudioTrackEverywhere(newTrack) {
+  Object.values(connections).forEach((call) => {
+    if (call.peerConnection) {
+      const senders = call.peerConnection.getSenders();
+      const audioSender = senders.find((s) => s.track && s.track.kind === "audio");
+      if (audioSender) {
+        audioSender.replaceTrack(newTrack);
+      }
+    }
+  });
+}
+
 async function switchMicrophone(deviceId) {
   try {
     const audioConstraints = deviceId
@@ -767,35 +429,17 @@ async function switchMicrophone(deviceId) {
       : true;
     const newStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
 
-    // Stop old tracks
     if (localStream) {
       localStream.getTracks().forEach((t) => t.stop());
     }
-
-    // Apply mute state
     if (isMuted) {
       newStream.getAudioTracks().forEach((t) => { t.enabled = false; });
     }
-
     localStream = newStream;
-
-    // Replace track in all active PeerJS connections
-    const newTrack = localStream.getAudioTracks()[0];
-    Object.values(connections).forEach((call) => {
-      if (call.peerConnection) {
-        const senders = call.peerConnection.getSenders();
-        const audioSender = senders.find((s) => s.track && s.track.kind === "audio");
-        if (audioSender) {
-          audioSender.replaceTrack(newTrack);
-        }
-      }
-    });
-
-    // Restart local analyser
+    replaceAudioTrackEverywhere(localStream.getAudioTracks()[0]);
     startLocalAnalyser(localStream);
   } catch (err) {
     console.warn("[HiSam] Erreur changement de micro, fallback defaut:", err);
-    // Fallback to default mic
     localStorage.removeItem("hisam-mic-id");
     micSelect.value = "";
     try {
@@ -807,16 +451,7 @@ async function switchMicrophone(deviceId) {
         fallbackStream.getAudioTracks().forEach((t) => { t.enabled = false; });
       }
       localStream = fallbackStream;
-      const newTrack = localStream.getAudioTracks()[0];
-      Object.values(connections).forEach((call) => {
-        if (call.peerConnection) {
-          const senders = call.peerConnection.getSenders();
-          const audioSender = senders.find((s) => s.track && s.track.kind === "audio");
-          if (audioSender) {
-            audioSender.replaceTrack(newTrack);
-          }
-        }
-      });
+      replaceAudioTrackEverywhere(localStream.getAudioTracks()[0]);
       startLocalAnalyser(localStream);
     } catch (err2) {
       console.error("[HiSam] Impossible de revenir au micro par defaut:", err2);
@@ -843,50 +478,7 @@ if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
   });
 }
 
-function leaveRoom(roomId) {
-  delete myActiveRooms[roomId];
-  // Remove only this room from Firebase
-  db.ref(`users/${myId}/activeRooms/${roomId}`).remove();
-
-  // Close connections with peers we no longer share any room with
-  cleanupConnections();
-
-  // If no more active rooms in this tab, stop mic and video
-  if (Object.keys(myActiveRooms).length === 0) {
-    stopMic();
-    stopAllShares();
-  }
-
-  // Clear auto-rejoin if no rooms left anywhere
-  if (getMyRoomIds().length === 0) {
-    clearSessionForRejoin();
-  }
-
-  renderRooms();
-}
-
-function leaveAllRooms() {
-  // Remove all rooms (own + from other tabs)
-  getMyRoomIds().forEach((roomId) => {
-    db.ref(`users/${myId}/activeRooms/${roomId}`).remove();
-  });
-  myActiveRooms = {};
-  clearSessionForRejoin();
-
-  // Close all connections
-  Object.values(connections).forEach((call) => call.close());
-  connections = {};
-
-  stopAllAnalysers();
-  stopMic();
-  stopAllShares();
-  removeAllRemoteVideos();
-  audioContainer.innerHTML = "";
-  renderRooms();
-}
-
 // ---- Etat du micro publie aux autres ----
-// Seul l'onglet qui tient le micro publie l'etat (les autres onglets n'ont pas de flux)
 function publishMicState() {
   if (!localStream) return;
   db.ref(`users/${myId}/muted`).set(isMuted);
@@ -903,30 +495,8 @@ function stopMic() {
   updateMuteBtn();
 }
 
-// ---- Active Bar ----
-function updateActiveBar() {
-  const activeRoomIds = getMyRoomIds();
-
-  if (activeRoomIds.length === 0) {
-    activeBar.style.display = "none";
-    return;
-  }
-
-  activeBar.style.display = "flex";
-
-  activeBarRooms.innerHTML = activeRoomIds
-    .map((roomId) => {
-      const room = allRooms[roomId];
-      const name = room ? room.name : "...";
-      return `<span class="active-room-pill">${escapeHtml(name)}</span>`;
-    })
-    .join("");
-
-  updateMuteBtn();
-}
-
 // ---- Mute ----
-leaveAllBtn.addEventListener("click", leaveAllRooms);
+leaveOfficeBtn.addEventListener("click", leaveOffice);
 
 globalMuteBtn.addEventListener("click", () => {
   if (!localStream) return;
@@ -950,6 +520,171 @@ function updateMuteBtn() {
   }
 }
 
+// ---- Bureau : entree / sortie ----
+function showOverlay(html) {
+  alreadyOpenEl.innerHTML = `<div>${html}</div>`;
+  alreadyOpenEl.style.display = "flex";
+}
+
+async function enterOffice() {
+  if (officeEntered) return;
+  officeEntered = true;
+
+  // Le micro est demande en parallele : la demande d'autorisation du navigateur
+  // ne doit pas retarder l'affichage du bureau.
+  const micReady = acquireMic();
+
+  if (!world) {
+    world = World.create({
+      canvas: worldCanvas,
+      map: WORLD_MAP,
+      myId,
+      getProfile: (id) => {
+        if (id === myId) return { name: myName, muted: isMuted, avatar: myAvatar, online: true };
+        const u = allUsers[id];
+        if (!u) return null;
+        return {
+          name: u.name,
+          muted: u.muted === true,
+          avatar: Number.isInteger(u.avatar) ? u.avatar : World.avatarFor(id),
+          online: !!u.online,
+        };
+      },
+      getSpeakingLevel: speakingLevel,
+      // settled = fin de la marche : ecriture immediate, sans attendre le timer
+      // (que le navigateur ralentit dans un onglet en arriere-plan)
+      onMove: (pos, settled) => publishPosition(pos, !!settled),
+      onGroupChange,
+    });
+    try {
+      await world.load();
+    } catch (err) {
+      console.error("[HiSam] Chargement du monde impossible :", err);
+      showOverlay(`<p><strong>Impossible de charger le bureau.</strong></p><p>${escapeHtml(err.message)}</p>`);
+      return;
+    }
+  }
+
+  // Savoir qui est deja ou AVANT de choisir une case d'apparition
+  const snap = await db.ref("users").once("value");
+  feedPositionsToWorld(snap.val() || {});
+
+  inOffice = true;
+  const pos = world.spawn(loadLastPosition());
+  publishPosition(pos, true);
+  world.start();
+  updateGroupStatus();
+  syncConnections();
+  console.log(`[HiSam] Dans le bureau en (${pos.x}, ${pos.y})`);
+  micReady.then(() => { if (inOffice) syncConnections(); });
+}
+
+function leaveOffice() {
+  inOffice = false;
+  officeEntered = false;
+  if (world) world.stop();
+
+  Object.values(connections).forEach((call) => call.close());
+  connections = {};
+  Object.values(pendingIncoming).forEach((p) => { clearTimeout(p.timer); p.call.close(); });
+  pendingIncoming = {};
+  lastInGroupAt = {};
+
+  stopAllAnalysers();
+  stopMic();
+  stopAllShares();
+  removeAllRemoteVideos();
+  audioContainer.innerHTML = "";
+
+  db.ref(`users/${myId}`).remove();
+  localStorage.removeItem("hisam-last-pos");
+
+  // `peer` est conserve : se re-enregistrer sur le broker public a chaque
+  // sortie/entree declencherait sa limite de debit.
+  mainScreen.style.display = "none";
+  loginScreen.style.display = "flex";
+}
+
+// ---- Positions (Firebase /users/{id}/pos, coordonnees de case) ----
+// Chemin etroit sous mon propre noeud : l'onDisconnect de la presence l'efface
+// avec le reste, et les regles Firebase existantes (users/logs) suffisent.
+let lastPos = null;
+let lastPosWrite = 0;
+let posWriteTimer = null;
+
+function publishPosition(pos, force) {
+  lastPos = pos;
+  if (!inOffice) return;
+  const now = Date.now();
+  const write = () => {
+    posWriteTimer = null;
+    if (!inOffice || !lastPos) return;
+    lastPosWrite = Date.now();
+    db.ref(`users/${myId}/pos`).set({ x: lastPos.x, y: lastPos.y, dir: lastPos.dir });
+    saveLastPosition();
+  };
+  if (force || now - lastPosWrite >= POSITION_MIN_INTERVAL_MS) {
+    clearTimeout(posWriteTimer);
+    write();
+  } else if (!posWriteTimer) {
+    // Ecriture trainante : la derniere position est toujours envoyee
+    posWriteTimer = setTimeout(write, POSITION_MIN_INTERVAL_MS - (now - lastPosWrite));
+  }
+}
+
+function republishPosition() {
+  if (lastPos) publishPosition(lastPos, true);
+}
+
+function saveLastPosition() {
+  if (!lastPos) return;
+  localStorage.setItem("hisam-last-pos", JSON.stringify({ ...lastPos, ts: Date.now() }));
+}
+
+function loadLastPosition() {
+  try {
+    const saved = JSON.parse(localStorage.getItem("hisam-last-pos") || "null");
+    if (!saved || Date.now() - saved.ts > LAST_POS_TTL_MS) return null;
+    return saved;
+  } catch {
+    return null;
+  }
+}
+
+// ---- Groupe de conversation ----
+function onGroupChange(members, prev) {
+  flushPendingIncoming();
+  syncConnections();
+  cleanupConnections();
+  updateGroupStatus();
+
+  const joined = members.filter((id) => !prev.includes(id));
+  const left = prev.filter((id) => !members.includes(id));
+  joined.forEach((id) => {
+    const name = allUsers[id]?.name || "Quelqu'un";
+    notify(`${name} vous a rejoint`, "room");
+  });
+  if (left.length && !joined.length) playSound("leave");
+}
+
+function updateGroupStatus() {
+  if (!world || !inOffice) return;
+  const names = world.getGroupMembers().map((id) => allUsers[id]?.name || "?");
+  if (names.length === 0) {
+    groupStatusEl.textContent = "Personne a portee de voix";
+    groupStatusEl.classList.remove("active");
+  } else {
+    groupStatusEl.textContent = "En conversation avec " + names.join(", ");
+    groupStatusEl.classList.add("active");
+  }
+}
+
+function speakingLevel(id) {
+  if (id === myId) return localAnalyser && !isMuted ? getAudioLevel(localAnalyser) : 0;
+  const e = remoteAnalysers[id];
+  return e ? getAudioLevel(e.analyser) : 0;
+}
+
 // ---- PeerJS (audio WebRTC) ----
 function setupPeer() {
   peer = new Peer(myId, { debug: 0 });
@@ -960,43 +695,33 @@ function setupPeer() {
     peerReconnectAttempts = 0;
     clearTimeout(peerReconnectTimer);
     peerReconnectTimer = null;
+    if (!officeEntered && !peerBlocked) enterOffice();
+    else if (inOffice) syncConnections();
   });
 
   peer.on("call", (call) => {
-    // Accept call if we share at least one room with the caller
     call.__initiator = call.peer; // c'est lui qui appelle
     const metadata = call.metadata || {};
-    const callerRoomId = metadata.roomId;
+    const kind = VIDEO_KINDS.includes(metadata.kind) ? metadata.kind : null;
 
-    // Video call (camera / screen): accept without sending anything back
-    if (VIDEO_KINDS.includes(metadata.kind)) {
-      if (sharesAnyRoom(call.peer)) {
-        console.log(`[HiSam] video <- appel ${metadata.kind} de ${call.peer}, acceptation`);
-        call.answer();
-        setupIncomingVideoCall(call, metadata.kind);
-      } else {
-        console.warn(`[HiSam] video <- appel ${metadata.kind} de ${call.peer} REFUSE : aucun salon commun`,
-          { mesSalons: Object.keys(myActiveRooms), sesSalons: Object.keys(allUsers[call.peer]?.activeRooms || {}) });
-      }
-      return;
-    }
-
-    // Check if we're in this room
-    if (callerRoomId && myActiveRooms[callerRoomId] && localStream) {
-      call.answer(localStream);
-      setupCall(call);
-    } else if (localStream && sharesAnyRoom(call.peer)) {
-      // Fallback: accept if we share any room
-      call.answer(localStream);
-      setupCall(call);
+    if (acceptsCallFrom(call.peer)) {
+      answerCall(call, kind);
+    } else {
+      // Sa vue de nos positions est peut-etre en avance sur la mienne (latence
+      // Firebase) : on garde l'appel sous le coude quelques instants.
+      holdIncoming(call, kind);
     }
   });
 
   peer.on("error", (err) => {
     console.warn("[HiSam] PeerJS error:", err.type, err.message);
     if (err.type === "unavailable-id") {
-      // Another tab already has this PeerJS ID — don't retry endlessly
-      console.log("[HiSam] Audio actif dans un autre onglet");
+      if (!officeEntered) {
+        peerBlocked = true;
+        showOverlay("<p><strong>HiSam est deja ouvert dans un autre onglet.</strong></p><p>Ferme l'autre onglet puis recharge cette page.</p>");
+      } else {
+        console.log("[HiSam] Identifiant PeerJS deja pris (autre onglet ?)");
+      }
     } else if (err.type === "network") {
       schedulePeerReconnect();
     }
@@ -1013,6 +738,7 @@ function setupPeer() {
 function schedulePeerReconnect() {
   if (peerReconnectTimer) return; // une seule tentative en vol a la fois
   if (!peer || peer.destroyed) return;
+  if (peerBlocked) return; // identifiant pris par un autre onglet : inutile d'insister
 
   if (peerReconnectAttempts >= PEER_MAX_RECONNECT) {
     console.error(
@@ -1040,7 +766,18 @@ function schedulePeerReconnect() {
   }, delay);
 }
 
-// Quand A et B rejoignent un salon en meme temps, chacun appelle l'autre : deux
+function answerCall(call, kind) {
+  if (kind) {
+    console.log(`[HiSam] video <- appel ${kind} de ${call.peer}, acceptation`);
+    call.answer();
+    setupIncomingVideoCall(call, kind);
+  } else {
+    call.answer(localStream || undefined);
+    setupCall(call);
+  }
+}
+
+// Quand A et B se rapprochent en meme temps, chacun appelle l'autre : deux
 // connexions naissent pour la meme paire ("glare"). Si chaque cote garde
 // arbitrairement la derniere arrivee, les deux cotes ferment celle que l'autre
 // garde et il ne reste RIEN : A et B ne s'entendent plus, alors que C, arrive a
@@ -1136,8 +873,11 @@ function getOrCreateAudioContext() {
   return audioContext;
 }
 
+// Appele a chaque frame pour chaque pair (anneau "parle" du monde) : le tampon
+// est alloue une seule fois par analyseur.
 function getAudioLevel(analyser) {
-  const data = new Uint8Array(analyser.frequencyBinCount);
+  if (!analyser.__buf) analyser.__buf = new Uint8Array(analyser.frequencyBinCount);
+  const data = analyser.__buf;
   analyser.getByteFrequencyData(data);
   let sum = 0;
   for (let i = 0; i < data.length; i++) {
@@ -1238,77 +978,91 @@ function stopAllAnalysers() {
 }
 
 // ---- Connection management ----
-function sharesAnyRoom(peerId) {
-  const peerUser = allUsers[peerId];
-  if (!peerUser || !peerUser.activeRooms) return false;
-
-  return Object.keys(myActiveRooms).some(
-    (roomId) => peerUser.activeRooms[roomId]
-  );
+// A qui dois-je parler ? Aux membres de mon groupe de conversation (composante
+// connexe des gens assez proches, dans la meme zone), calcule par world.js.
+function shouldTalkTo(id) {
+  return inOffice && !!world && !!allUsers[id]?.online && world.isInMyGroup(id);
 }
 
-function connectToPeersInRoom(roomId) {
-  if (!localStream || !peer || peer.disconnected) return;
+// Appel entrant : on est tolerant d'une bande d'hysteresis, car la vue de
+// l'appelant peut etre en avance de 100-300 ms sur la mienne.
+function acceptsCallFrom(id) {
+  if (!inOffice || !world || !allUsers[id]?.online) return false;
+  return world.isInMyGroup(id) || world.distanceTo(id) <= World.CONFIG.LEAVE_TILES;
+}
 
-  Object.entries(allUsers).forEach(([id, user]) => {
-    if (id === myId || !user.online) return;
-    if (!user.activeRooms || !user.activeRooms[roomId]) return;
+// Nettoyage : petite grace temporelle en plus de l'hysteresis de distance.
+function shouldKeep(id) {
+  if (shouldTalkTo(id)) {
+    lastInGroupAt[id] = Date.now();
+    return true;
+  }
+  return Date.now() - (lastInGroupAt[id] || 0) < LEAVE_GRACE_MS;
+}
 
-    // Already connected to this peer
-    if (connections[id] && connections[id].open) return;
+function holdIncoming(call, kind) {
+  const key = kind ? `${call.peer}-${kind}` : call.peer;
+  if (pendingIncoming[key]) {
+    clearTimeout(pendingIncoming[key].timer);
+    pendingIncoming[key].call.close();
+  }
+  const timer = setTimeout(() => {
+    if (pendingIncoming[key]?.call === call) {
+      delete pendingIncoming[key];
+      console.log(`[HiSam] appel ${kind || "audio"} de ${call.peer} refuse : pas a portee`);
+      call.close();
+    }
+  }, PENDING_CALL_MS);
+  pendingIncoming[key] = { call, kind, timer };
+}
 
-    const call = peer.call(id, localStream, { metadata: { roomId } });
-    if (call) {
-      call.__initiator = myId;
-      setupCall(call);
+function flushPendingIncoming() {
+  Object.entries(pendingIncoming).forEach(([key, p]) => {
+    if (acceptsCallFrom(p.call.peer)) {
+      clearTimeout(p.timer);
+      delete pendingIncoming[key];
+      answerCall(p.call, p.kind);
     }
   });
 }
 
 function syncConnections() {
-  if (!localStream || !peer || Object.keys(myActiveRooms).length === 0) return;
+  if (!inOffice || !world || !peer) return;
   // Inutile d'appeler pendant une coupure du serveur de signalisation :
   // peer.call() renvoie undefined et ne fait qu'empiler des erreurs.
   if (peer.disconnected) return;
 
-  // Connect to peers we share a room with but aren't connected to
-  Object.entries(allUsers).forEach(([id, user]) => {
-    if (id === myId || !user.online || !user.activeRooms) return;
-
-    const shared = Object.keys(myActiveRooms).some(
-      (roomId) => user.activeRooms[roomId]
-    );
-
-    if (shared && (!connections[id] || !connections[id].open)) {
-      const sharedRoomId = Object.keys(myActiveRooms).find(
-        (roomId) => user.activeRooms[roomId]
-      );
-      const call = peer.call(id, localStream, { metadata: { roomId: sharedRoomId } });
+  if (localStream) {
+    world.getGroupMembers().forEach((id) => {
+      if (!allUsers[id]?.online) return;
+      if (connections[id] && connections[id].open) return;
+      const call = peer.call(id, localStream, { metadata: { kind: "audio" } });
       if (call) {
         call.__initiator = myId;
         setupCall(call);
       }
-    }
-  });
+    });
+  }
 
   syncVideoCalls();
 }
 
-// syncConnections() n'est declenche que par un changement dans Firebase. Or le
-// serveur de signalisation public coupe regulierement : un appel rate pendant
-// une coupure n'etait jamais retente, laissant deux personnes muettes l'une
-// pour l'autre. Ce filet de securite rattrape ces trous.
+// syncConnections() est declenche par les changements de groupe et de
+// presence. Or le serveur de signalisation public coupe regulierement : un
+// appel rate pendant une coupure n'etait jamais retente, laissant deux
+// personnes muettes l'une pour l'autre. Ce filet de securite rattrape ces trous.
 function startResyncLoop() {
   if (resyncTimer) return;
   resyncTimer = setInterval(() => {
-    if (Object.keys(myActiveRooms).length === 0) return;
+    if (!inOffice) return;
     syncConnections();
+    cleanupConnections();
   }, RESYNC_INTERVAL_MS);
 }
 
 function cleanupConnections() {
   Object.keys(connections).forEach((peerId) => {
-    if (!sharesAnyRoom(peerId)) {
+    if (!shouldKeep(peerId)) {
       connections[peerId].close();
       removeAudio(peerId);
       delete connections[peerId];
@@ -1333,7 +1087,7 @@ async function toggleShare(kind) {
     stopShare(kind);
     return;
   }
-  if (!peer || Object.keys(myActiveRooms).length === 0) return;
+  if (!peer || !inOffice) return;
 
   let stream;
   try {
@@ -1390,15 +1144,15 @@ function updateShareBtns() {
   screenBtn.title = videoStreams.screen ? "Arreter le partage" : "Partager mon ecran";
 }
 
-// Appelle chaque personne avec qui je partage un salon, pour chaque flux que j'envoie
+// Appelle chaque membre de ma conversation, pour chaque flux que j'envoie
 function syncVideoCalls() {
-  if (!peer || peer.disconnected) return;
+  if (!peer || peer.disconnected || !world || !inOffice) return;
   VIDEO_KINDS.forEach((kind) => {
     const stream = videoStreams[kind];
     if (!stream) return;
 
-    Object.entries(allUsers).forEach(([id, user]) => {
-      if (id === myId || !user.online || !sharesAnyRoom(id)) return;
+    world.getGroupMembers().forEach((id) => {
+      if (!shouldTalkTo(id)) return;
       if (videoCalls[kind][id]) return; // deja appele
 
       const call = peer.call(id, stream, { metadata: { kind } });
@@ -1419,11 +1173,11 @@ function syncVideoCalls() {
   });
 }
 
-// Ferme les appels video avec les personnes qui ne partagent plus de salon avec moi
+// Ferme les appels video avec les personnes qui ne sont plus dans ma conversation
 function cleanupVideoCalls() {
   VIDEO_KINDS.forEach((kind) => {
     Object.keys(videoCalls[kind]).forEach((peerId) => {
-      if (!sharesAnyRoom(peerId)) {
+      if (!shouldKeep(peerId)) {
         videoCalls[kind][peerId].close();
         delete videoCalls[kind][peerId];
       }
@@ -1431,7 +1185,7 @@ function cleanupVideoCalls() {
   });
   Object.keys(remoteVideoCalls).forEach((key) => {
     const call = remoteVideoCalls[key];
-    if (!sharesAnyRoom(call.peer)) {
+    if (!shouldKeep(call.peer)) {
       call.close();
       removeVideo(call.peer, call.metadata.kind);
       delete remoteVideoCalls[key];
@@ -1670,29 +1424,13 @@ document.addEventListener("visibilitychange", () => {
 
 // ---- Cleanup on close ----
 window.addEventListener("beforeunload", () => {
-  // Save session so we can auto-rejoin on refresh
-  saveSessionForRejoin();
+  // Position memorisee pour reapparaitre au meme endroit apres un refresh
+  saveLastPosition();
 
-  // Remove only rooms THIS tab joined (not inherited from other tabs)
-  Object.keys(myActiveRooms).forEach((roomId) => {
-    db.ref(`users/${myId}/activeRooms/${roomId}`).remove();
-  });
-
-  // Close audio connections
   Object.values(connections).forEach((call) => call.close());
   if (localStream) {
     localStream.getTracks().forEach((t) => t.stop());
   }
 
-  // Check if other tabs still have rooms (rooms in Firebase not owned by this tab)
-  const firebaseRooms = allUsers[myId]?.activeRooms || {};
-  const otherTabsHaveRooms = Object.keys(firebaseRooms).some((r) => !myActiveRooms[r]);
-
-  if (otherTabsHaveRooms) {
-    // Other tabs still active — cancel this tab's onDisconnect
-    db.ref(`users/${myId}`).onDisconnect().cancel();
-  } else {
-    // No other tabs with rooms — remove user entirely
-    db.ref(`users/${myId}`).remove();
-  }
+  db.ref(`users/${myId}`).remove();
 });

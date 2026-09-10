@@ -1,0 +1,76 @@
+{
+  "frameW": 16,
+  "frameH": 20,
+  "dirs": [
+    "down",
+    "left",
+    "right",
+    "up"
+  ],
+  "framesPerDir": 3,
+  "walkCycle": [
+    1,
+    0,
+    2,
+    0
+  ],
+  "fps": 8,
+  "variants": [
+    {
+      "name": "teal",
+      "skin": "#f1c27d",
+      "hair": "#3b2314",
+      "shirt": "#0d9488",
+      "pants": "#2b3a67"
+    },
+    {
+      "name": "rouge",
+      "skin": "#f1c27d",
+      "hair": "#e8c15a",
+      "shirt": "#dc4c4c",
+      "pants": "#2a2a2a"
+    },
+    {
+      "name": "bleu",
+      "skin": "#d9a066",
+      "hair": "#1e1e28",
+      "shirt": "#3b82f6",
+      "pants": "#2b3a67"
+    },
+    {
+      "name": "jaune",
+      "skin": "#8d5524",
+      "hair": "#1e1e28",
+      "shirt": "#f4b942",
+      "pants": "#5a3d2b"
+    },
+    {
+      "name": "vert",
+      "skin": "#f1c27d",
+      "hair": "#c8452c",
+      "shirt": "#3fae6e",
+      "pants": "#2a2a2a"
+    },
+    {
+      "name": "violet",
+      "skin": "#d9a066",
+      "hair": "#6b4423",
+      "shirt": "#8b5cf6",
+      "pants": "#2b3a67"
+    },
+    {
+      "name": "blanc",
+      "skin": "#8d5524",
+      "hair": "#3b2314",
+      "shirt": "#e7e5e4",
+      "pants": "#2a2a2a"
+    },
+    {
+      "name": "rose",
+      "skin": "#f1c27d",
+      "hair": "#d4d4d4",
+      "shirt": "#ec6fa0",
+      "pants": "#5a3d2b"
+    }
+  ]
+}

@@ -1,0 +1,321 @@
+{
+ "tileSize": 16,
+ "columns": 16,
+ "count": 73,
+ "names": {
+  "grass": 0,
+  "pavement": 1,
+  "floor_carpet": 2,
+  "floor_carpet_alt": 3,
+  "floor_wood": 4,
+  "floor_tile": 5,
+  "mat": 6,
+  "wall_top": 7,
+  "wall_face": 8,
+  "wall_window": 9,
+  "wall_whiteboard": 10,
+  "wall_picture_a": 11,
+  "wall_picture_b": 12,
+  "wall_map": 13,
+  "door": 14,
+  "door_glass": 15,
+  "desk_pc": 16,
+  "desk_laptop": 17,
+  "desk_papers": 18,
+  "desk_plain": 19,
+  "chair_down": 20,
+  "chair_up": 21,
+  "chair_right": 22,
+  "chair_left": 23,
+  "chair_white_down": 24,
+  "chair_white_up": 25,
+  "table_tl": 26,
+  "table_tm": 27,
+  "table_tr": 28,
+  "table_bl": 29,
+  "table_bm": 30,
+  "table_br": 31,
+  "round_tl": 32,
+  "round_tr": 33,
+  "round_bl": 34,
+  "round_br": 35,
+  "sofa_tl": 36,
+  "sofa_tm": 37,
+  "sofa_tr": 38,
+  "sofa_bl": 39,
+  "sofa_bm": 40,
+  "sofa_br": 41,
+  "armchair_top": 42,
+  "armchair_bottom": 43,
+  "rug_tl": 44,
+  "rug_tm": 45,
+  "rug_tr": 46,
+  "rug_ml": 47,
+  "rug_mm": 48,
+  "rug_mr": 49,
+  "rug_bl": 50,
+  "rug_bm": 51,
+  "rug_br": 52,
+  "piano_l": 53,
+  "piano_r": 54,
+  "shelf_top": 55,
+  "shelf_bottom": 56,
+  "counter": 57,
+  "counter_cabinet": 58,
+  "counter_jars": 59,
+  "counter_bottles": 60,
+  "counter_sink": 61,
+  "counter_coffee": 62,
+  "stove": 63,
+  "fridge_top": 64,
+  "fridge_bottom": 65,
+  "water_cooler": 66,
+  "plant_a": 67,
+  "plant_b": 68,
+  "bush": 69,
+  "tree": 70,
+  "bin": 71,
+  "crate": 72
+ },
+ "sources": {
+  "grass": [
+   "gen:grass"
+  ],
+  "pavement": [
+   "gen:pavement"
+  ],
+  "floor_carpet": [
+   "gen:floor_carpet"
+  ],
+  "floor_carpet_alt": [
+   "gen:floor_carpet_alt"
+  ],
+  "floor_wood": [
+   "gen:floor_wood"
+  ],
+  "floor_tile": [
+   "gen:floor_tile"
+  ],
+  "mat": [
+   "gen:mat"
+  ],
+  "wall_top": [
+   "gen:wall_top"
+  ],
+  "wall_face": [
+   "gen:wall_face"
+  ],
+  "wall_window": [
+   "gen:wall_face",
+   "city:729"
+  ],
+  "wall_whiteboard": [
+   "gen:wall_face",
+   "gen:ov_whiteboard"
+  ],
+  "wall_picture_a": [
+   "gen:wall_face",
+   "indoor:340"
+  ],
+  "wall_picture_b": [
+   "gen:wall_face",
+   "indoor:341"
+  ],
+  "wall_map": [
+   "gen:wall_face",
+   "indoor:371"
+  ],
+  "door": [
+   "gen:wall_face",
+   "city:617"
+  ],
+  "door_glass": [
+   "gen:wall_face",
+   "city:619"
+  ],
+  "desk_pc": [
+   "indoor:112",
+   "gen:ov_monitor"
+  ],
+  "desk_laptop": [
+   "indoor:113",
+   "gen:ov_laptop"
+  ],
+  "desk_papers": [
+   "indoor:113",
+   "gen:ov_papers"
+  ],
+  "desk_plain": [
+   "indoor:112"
+  ],
+  "chair_down": [
+   "indoor:54"
+  ],
+  "chair_up": [
+   "indoor:55"
+  ],
+  "chair_right": [
+   "indoor:56"
+  ],
+  "chair_left": [
+   "indoor:57"
+  ],
+  "chair_white_down": [
+   "indoor:216"
+  ],
+  "chair_white_up": [
+   "indoor:217"
+  ],
+  "table_tl": [
+   "indoor:0"
+  ],
+  "table_tm": [
+   "indoor:1"
+  ],
+  "table_tr": [
+   "indoor:2"
+  ],
+  "table_bl": [
+   "indoor:27"
+  ],
+  "table_bm": [
+   "indoor:28"
+  ],
+  "table_br": [
+   "indoor:29"
+  ],
+  "round_tl": [
+   "indoor:3"
+  ],
+  "round_tr": [
+   "indoor:4"
+  ],
+  "round_bl": [
+   "indoor:30"
+  ],
+  "round_br": [
+   "indoor:31"
+  ],
+  "sofa_tl": [
+   "indoor:286"
+  ],
+  "sofa_tm": [
+   "indoor:287"
+  ],
+  "sofa_tr": [
+   "indoor:288"
+  ],
+  "sofa_bl": [
+   "indoor:313"
+  ],
+  "sofa_bm": [
+   "indoor:314"
+  ],
+  "sofa_br": [
+   "indoor:315"
+  ],
+  "armchair_top": [
+   "indoor:235"
+  ],
+  "armchair_bottom": [
+   "indoor:262"
+  ],
+  "rug_tl": [
+   "gen:floor_wood",
+   "indoor:250"
+  ],
+  "rug_tm": [
+   "gen:floor_wood",
+   "indoor:251"
+  ],
+  "rug_tr": [
+   "gen:floor_wood",
+   "indoor:252"
+  ],
+  "rug_ml": [
+   "gen:floor_wood",
+   "indoor:277"
+  ],
+  "rug_mm": [
+   "gen:floor_wood",
+   "indoor:278"
+  ],
+  "rug_mr": [
+   "gen:floor_wood",
+   "indoor:279"
+  ],
+  "rug_bl": [
+   "gen:floor_wood",
+   "indoor:304"
+  ],
+  "rug_bm": [
+   "gen:floor_wood",
+   "indoor:305"
+  ],
+  "rug_br": [
+   "gen:floor_wood",
+   "indoor:306"
+  ],
+  "piano_l": [
+   "indoor:239"
+  ],
+  "piano_r": [
+   "indoor:240"
+  ],
+  "shelf_top": [
+   "indoor:374"
+  ],
+  "shelf_bottom": [
+   "indoor:401"
+  ],
+  "counter": [
+   "indoor:324"
+  ],
+  "counter_cabinet": [
+   "indoor:325"
+  ],
+  "counter_jars": [
+   "indoor:328"
+  ],
+  "counter_bottles": [
+   "indoor:329"
+  ],
+  "counter_sink": [
+   "indoor:330"
+  ],
+  "counter_coffee": [
+   "indoor:324",
+   "gen:ov_coffee"
+  ],
+  "stove": [
+   "indoor:392"
+  ],
+  "fridge_top": [
+   "indoor:416"
+  ],
+  "fridge_bottom": [
+   "indoor:443"
+  ],
+  "water_cooler": [
+   "city:567"
+  ],
+  "plant_a": [
+   "indoor:16"
+  ],
+  "plant_b": [
+   "indoor:17"
+  ],
+  "bush": [
+   "city:514"
+  ],
+  "tree": [
+   "city:401"
+  ],
+  "bin": [
+   "city:144"
+  ],
+  "crate": [
+   "city:676"
+  ]
+ }
+}

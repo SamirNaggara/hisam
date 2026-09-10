@@ -141,7 +141,6 @@
       firebase.initializeApp(FIREBASE_CONFIG);
       const db = firebase.database();
 
-      let allRooms = {};
       let allUsers = {};
 
       // Base URL: same origin, index.html
@@ -175,43 +174,13 @@
           return;
         }
 
-        const [, user] = userEntry;
-        const activeRoomIds = user.activeRooms ? Object.keys(user.activeRooms) : [];
-
-        // Find rooms they're actually in
-        const roomNames = activeRoomIds
-          .filter(id => allRooms[id])
-          .map(id => ({ id, name: allRooms[id].name }));
-
-        if (roomNames.length === 0) {
-          // Online but not in a room
-          widget.classList.remove("active");
-          dot.className = "dot";
-          wStatus.textContent = "En ligne, pas dans un salon";
-          widget.href = "#";
-          arrow.style.display = "none";
-          return;
-        }
-
-        // In a room!
+        // Au bureau : le lien ouvre le bureau, on ira le voir a pied
         widget.classList.add("active");
         dot.className = "dot in-room";
         arrow.style.display = "block";
-
-        if (roomNames.length === 1) {
-          wStatus.textContent = "Dans " + roomNames[0].name;
-          widget.href = baseUrl + "#join=" + roomNames[0].id;
-        } else {
-          wStatus.textContent = "Dans " + roomNames.map(r => r.name).join(", ");
-          // Link to the first room
-          widget.href = baseUrl + "#join=" + roomNames[0].id;
-        }
+        wStatus.textContent = "Au bureau";
+        widget.href = baseUrl;
       }
-
-      db.ref("rooms").on("value", (snap) => {
-        allRooms = snap.val() || {};
-        render();
-      });
 
       db.ref("users").on("value", (snap) => {
         allUsers = snap.val() || {};

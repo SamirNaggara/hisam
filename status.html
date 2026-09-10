@@ -138,13 +138,15 @@
 
   <div class="api-section">
     <span class="api-link">
-      API : <code id="api-rooms-url">...</code> &amp; <code id="api-users-url">...</code>
+      API : <code id="api-users-url">...</code>
     </span>
   </div>
   <p class="footer">Mise a jour en temps reel — aucun mot de passe requis pour voir</p>
 
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
+  <script src="proximity.js?v=world-1"></script>
+  <script src="world-map.js?v=world-1"></script>
   <script>
     const FIREBASE_CONFIG = {
       apiKey: "AIzaSyAnMeev1Im_FRV1j7AHE7ikUSEbisQ_Wpo",
@@ -156,12 +158,9 @@
     firebase.initializeApp(FIREBASE_CONFIG);
     const db = firebase.database();
 
-    document.getElementById("api-rooms-url").textContent =
-      FIREBASE_CONFIG.databaseURL + "/rooms.json";
     document.getElementById("api-users-url").textContent =
       FIREBASE_CONFIG.databaseURL + "/users.json";
 
-    let allRooms = {};
     let allUsers = {};
 
     function esc(str) {
@@ -170,81 +169,60 @@
       return d.innerHTML;
     }
 
+    // Memes regles que dans le bureau : meme zone et assez proches (sans hysteresis ici)
+    function conversations(onlineUsers) {
+      const players = {};
+      onlineUsers.forEach(([id, u]) => {
+        if (!u.pos) return;
+        const zone = (WORLD_MAP.zones[u.pos.y] || "")[u.pos.x] || "?";
+        players[id] = { x: u.pos.x, y: u.pos.y, zone };
+      });
+      const { groups } = Proximity.computeGroups(players, { enter: 2.5 });
+      const byGroup = {};
+      groups.forEach((g, id) => { (byGroup[g] = byGroup[g] || []).push(id); });
+      const partners = {};
+      Object.values(byGroup).forEach((ids) => {
+        if (ids.length < 2) return;
+        ids.forEach((id) => { partners[id] = ids.filter((o) => o !== id); });
+      });
+      return partners;
+    }
+
     function render() {
       const content = document.getElementById("content");
       const globalCount = document.getElementById("global-count");
 
       const onlineUsers = Object.entries(allUsers).filter(([, u]) => u.online);
-      globalCount.textContent = `${onlineUsers.length} personne${onlineUsers.length !== 1 ? "s" : ""} en ligne`;
+      onlineUsers.sort((a, b) => (a[1].name || "").localeCompare(b[1].name || ""));
+      globalCount.textContent = `${onlineUsers.length} personne${onlineUsers.length !== 1 ? "s" : ""} au bureau`;
 
-      let html = "";
-      const roomEntries = Object.entries(allRooms);
+      if (onlineUsers.length === 0) {
+        content.innerHTML = '<p class="empty">Personne au bureau</p>';
+        return;
+      }
 
-      // Render each room
-      roomEntries.forEach(([roomId, room]) => {
-        const members = onlineUsers.filter(
-          ([, u]) => u.activeRooms && u.activeRooms[roomId]
-        );
-        members.sort((a, b) => a[1].name.localeCompare(b[1].name));
-
-        html += `
-          <div class="card">
-            <div class="card-header">
-              <h2>${esc(room.name)}</h2>
-              <span class="badge ${members.length > 0 ? "active" : ""}">${members.length} personne${members.length !== 1 ? "s" : ""}</span>
-            </div>
-            <div class="members">
-              ${members.length === 0
-                ? '<p class="empty">Personne dans ce salon</p>'
-                : members.map(([, u]) => `
-                    <div class="member">
-                      <span class="dot in-room"></span>
-                      <span class="name">${esc(u.name)}</span>
-                    </div>
-                  `).join("")}
-            </div>
-          </div>`;
-      });
-
-      // Users online but not in any room
-      const usersInRooms = new Set();
-      roomEntries.forEach(([roomId]) => {
-        onlineUsers.forEach(([id, u]) => {
-          if (u.activeRooms && u.activeRooms[roomId]) usersInRooms.add(id);
-        });
-      });
-
-      const idleUsers = onlineUsers.filter(([id]) => !usersInRooms.has(id));
-      idleUsers.sort((a, b) => a[1].name.localeCompare(b[1].name));
-
-      if (idleUsers.length > 0) {
-        html += `
-          <p class="section-title">En ligne</p>
-          <div class="card">
-            <div class="members">
-              ${idleUsers.map(([, u]) => `
+      const partners = conversations(onlineUsers);
+      content.innerHTML = `
+        <div class="card">
+          <div class="card-header">
+            <h2>Au bureau</h2>
+            <span class="badge active">${onlineUsers.length} personne${onlineUsers.length !== 1 ? "s" : ""}</span>
+          </div>
+          <div class="members">
+            ${onlineUsers.map(([id, u]) => {
+              const talking = partners[id];
+              const detail = talking
+                ? ` <span class="badge active">en conversation avec ${esc(talking.map((o) => allUsers[o].name).join(", "))}</span>`
+                : "";
+              return `
                 <div class="member">
-                  <span class="dot online"></span>
-                  <span class="name">${esc(u.name)}</span>
-                </div>
-              `).join("")}
-            </div>
-          </div>`;
-      }
-
-      if (roomEntries.length === 0 && onlineUsers.length === 0) {
-        html = '<p class="empty">Personne en ligne</p>';
-      } else if (roomEntries.length === 0 && idleUsers.length === 0) {
-        html = '<p class="empty">Aucun salon cree</p>';
-      }
-
-      content.innerHTML = html;
+                  <span class="dot ${talking ? "in-room" : "online"}"></span>
+                  <span class="name">${esc(u.name || "?")}</span>${detail}
+                </div>`;
+            }).join("")}
+          </div>
+        </div>`;
     }
-
-    db.ref("rooms").on("value", (snap) => {
-      allRooms = snap.val() || {};
-      render();
-    });
 
     db.ref("users").on("value", (snap) => {
       allUsers = snap.val() || {};
