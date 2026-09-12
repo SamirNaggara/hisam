@@ -192,7 +192,8 @@
       const content = document.getElementById("content");
       const globalCount = document.getElementById("global-count");
 
-      const onlineUsers = Object.entries(allUsers).filter(([, u]) => u.online);
+      // En ligne sans position = pas encore entre dans le bureau (voir app.js)
+      const onlineUsers = Object.entries(allUsers).filter(([, u]) => u.online && u.pos);
       onlineUsers.sort((a, b) => (a[1].name || "").localeCompare(b[1].name || ""));
       globalCount.textContent = `${onlineUsers.length} personne${onlineUsers.length !== 1 ? "s" : ""} au bureau`;
 

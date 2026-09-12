@@ -164,7 +164,7 @@
 
         wName.textContent = targetName;
 
-        if (!userEntry || !userEntry[1].online) {
+        if (!userEntry || !userEntry[1].online || !userEntry[1].pos) {
           // Offline
           widget.classList.remove("active");
           dot.className = "dot";

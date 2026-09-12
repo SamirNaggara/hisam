@@ -343,27 +343,33 @@ function formatDate(d) {
 }
 
 // ---- Listen to users ----
+// "Au bureau" = en ligne ET une position publiee. Entre la connexion et
+// l'entree (attente de PeerJS, onglet bloque par "deja ouvert", monde qui ne
+// charge pas...) la personne est enregistree mais pas dans le bureau : elle ne
+// doit ni apparaitre dans la liste, ni declencher de notification.
+function isAtOffice(u) {
+  return !!u && u.online === true && !!u.pos;
+}
+
 function listenToUsers() {
   db.ref("users").on("value", (snap) => {
     const users = snap.val() || {};
 
     if (initialLoadDone) {
       Object.entries(users).forEach(([id, user]) => {
-        const prev = knownUsers[id];
-        if (!prev && user.online) {
+        const wasIn = isAtOffice(knownUsers[id]);
+        const isIn = isAtOffice(user);
+        if (!wasIn && isIn) {
           writeLog("connect", user.name);
           if (id !== myId) notify(`${user.name} est arrive(e) au bureau`, "online");
-        } else if (prev && prev.online && !user.online) {
-          writeLog("disconnect", prev.name);
-        } else if (prev && !prev.online && user.online) {
-          writeLog("connect", user.name);
-          if (id !== myId) notify(`${user.name} est arrive(e) au bureau`, "online");
+        } else if (wasIn && !isIn) {
+          writeLog("disconnect", knownUsers[id].name);
         }
       });
 
       // Utilisateur supprime (deconnexion par onDisconnect().remove())
       Object.entries(knownUsers).forEach(([id, prev]) => {
-        if (!users[id] && prev.online) {
+        if (!users[id] && isAtOffice(prev)) {
           writeLog("disconnect", prev.name);
         }
       });
@@ -381,7 +387,7 @@ function listenToUsers() {
     // Les positions changent jusqu'a 8 fois par seconde par personne : on ne
     // refait le travail de presence que si elle a vraiment change.
     const signature = Object.entries(users)
-      .map(([id, u]) => `${id}:${u.name}:${u.online}:${u.muted}:${u.avatar}`)
+      .map(([id, u]) => `${id}:${u.name}:${u.online}:${!!u.pos}:${u.muted}:${u.avatar}`)
       .sort().join("|");
     const presenceChanged = signature !== lastPresenceSignature;
     lastPresenceSignature = signature;
@@ -410,11 +416,11 @@ function feedPositionsToWorld(users) {
 }
 
 function updateOnlineCount() {
-  const onlineUsers = Object.values(allUsers).filter((u) => u.online);
-  onlineCount.textContent = `${onlineUsers.length} en ligne`;
+  const onlineUsers = Object.values(allUsers).filter(isAtOffice);
+  onlineCount.textContent = `${onlineUsers.length} au bureau`;
 
   if (onlineUsers.length === 0) {
-    onlineTooltip.innerHTML = '<div class="online-tooltip-empty">Personne en ligne</div>';
+    onlineTooltip.innerHTML = '<div class="online-tooltip-empty">Personne au bureau</div>';
   } else {
     onlineTooltip.innerHTML = onlineUsers
       .map((u) => `<div class="online-tooltip-item">${escapeHtml(u.name || "?")}</div>`)
@@ -485,22 +491,31 @@ async function installMicStream(rawStream) {
   }
 }
 
-async function acquireMic() {
-  if (localStream) return true;
-  let rawStream;
+// Demande le micro memorise, sinon celui par defaut. null si aucun n'est accessible.
+async function requestMicStream() {
   try {
     const savedMicId = localStorage.getItem("hisam-mic-id");
-    rawStream = await navigator.mediaDevices.getUserMedia({ audio: micConstraints(savedMicId) });
+    return await navigator.mediaDevices.getUserMedia({ audio: micConstraints(savedMicId) });
   } catch (err) {
     // If exact deviceId fails, fallback to default
     try {
-      rawStream = await navigator.mediaDevices.getUserMedia({ audio: micConstraints(null) });
+      const rawStream = await navigator.mediaDevices.getUserMedia({ audio: micConstraints(null) });
       localStorage.removeItem("hisam-mic-id");
+      return rawStream;
     } catch (err2) {
-      console.warn("[HiSam] Micro indisponible, mode ecoute seule :", err2);
-      micWarningEl.style.display = "";
-      return false;
+      console.warn("[HiSam] Micro indisponible :", err2);
+      return null;
     }
+  }
+}
+
+async function acquireMic() {
+  if (localStream) return true;
+  const rawStream = await requestMicStream();
+  if (!rawStream) {
+    console.warn("[HiSam] Mode ecoute seule");
+    micWarningEl.style.display = "";
+    return false;
   }
   await installMicStream(rawStream);
   micWarningEl.style.display = "none";
@@ -570,7 +585,8 @@ micSelect.addEventListener("change", () => {
   } else {
     localStorage.removeItem("hisam-mic-id");
   }
-  if (localStream) {
+  // Micro coupe : le peripherique est relache, le choix sera pris a la reactivation
+  if (localStream && !isMuted) {
     switchMicrophone(deviceId);
   }
 });
@@ -611,14 +627,39 @@ function stopMic() {
 // ---- Mute ----
 leaveOfficeBtn.addEventListener("click", leaveOffice);
 
-globalMuteBtn.addEventListener("click", () => {
-  if (!localStream) return;
-  isMuted = !isMuted;
-  localStream.getAudioTracks().forEach((t) => {
-    t.enabled = !isMuted;
-  });
-  publishMicState();
-  updateMuteBtn();
+// Couper le micro relache vraiment le peripherique : avec un simple
+// track.enabled = false, le navigateur garde son indicateur "micro en cours
+// d'utilisation" sur l'onglet, et on ne sait plus si on est entendu ou pas.
+// Les connexions restent en place (la piste envoyee aux pairs est juste vide) ;
+// a la reactivation, le micro est redemande et la nouvelle piste remplace
+// l'ancienne partout (installMicStream).
+let micToggling = false;
+
+globalMuteBtn.addEventListener("click", async () => {
+  if (!localStream || micToggling) return;
+  micToggling = true;
+  try {
+    if (!isMuted) {
+      isMuted = true;
+      updateMuteBtn();
+      publishMicState();
+      stopLocalAnalyser();
+      if (rawMicStream) rawMicStream.getTracks().forEach((t) => t.stop());
+    } else {
+      const rawStream = await requestMicStream();
+      if (!rawStream) {
+        micWarningEl.style.display = "";
+        return; // reste coupe
+      }
+      isMuted = false;
+      updateMuteBtn();
+      publishMicState();
+      await installMicStream(rawStream);
+      micWarningEl.style.display = "none";
+    }
+  } finally {
+    micToggling = false;
+  }
 });
 
 function updateMuteBtn() {
