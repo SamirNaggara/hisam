@@ -68,6 +68,22 @@
     if (!ctx || !ctx.audioWorklet) {
       throw new Error("AudioWorklet non supporte par ce navigateur");
     }
+    // Safari (macOS) ne laisse demarrer un AudioContext que pendant un geste
+    // utilisateur, et le repasse en "interrupted" des qu'une autre appli prend
+    // l'audio. Le graphe se construirait sans la moindre erreur, mais
+    // MediaStreamDestination ne produirait que du silence : les autres
+    // n'entendraient plus rien du tout. Mieux vaut echouer ici et envoyer le
+    // micro brut.
+    if (ctx.state !== "running") {
+      try {
+        await ctx.resume();
+      } catch (err) {
+        // refus hors geste utilisateur : l'etat verifie juste apres tranche
+      }
+    }
+    if (ctx.state !== "running") {
+      throw new Error(`AudioContext ${ctx.state}, le flux traite serait muet`);
+    }
     if (ctx.sampleRate !== REQUIRED_SAMPLE_RATE) {
       throw new Error(`AudioContext a ${ctx.sampleRate} Hz, RNNoise exige ${REQUIRED_SAMPLE_RATE}`);
     }

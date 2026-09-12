@@ -35,6 +35,14 @@ const FIREBASE_CONFIG = {
 };
 
 // ---- Init Firebase ----
+if (typeof firebase === "undefined") {
+  // Script CDN (www.gstatic.com) bloque par le reseau ou une extension : sans
+  // annuaire rien ne peut marcher. Le dire, plutot que laisser la page muette
+  // avec un bouton "Entrer" qui ne fait rien.
+  document.getElementById("login-error").textContent =
+    "Impossible de charger Firebase (www.gstatic.com bloque ?). HiSam ne peut pas demarrer.";
+  throw new Error("[HiSam] firebase absent");
+}
 firebase.initializeApp(FIREBASE_CONFIG);
 const db = firebase.database();
 
@@ -56,7 +64,7 @@ let rawMicStream = null;  // pistes du peripherique
 let micProcessing = null; // chaine de nettoyage { stream, destroy }
 let isMuted = false;
 let connections = {}; // peerId → MediaConnection
-const APP_VERSION = "audio-1";
+const APP_VERSION = "audio-2";
 const PEER_MAX_RECONNECT = 8;
 const RESYNC_INTERVAL_MS = 5000;
 let resyncTimer = null;
@@ -76,6 +84,19 @@ let world = null;            // instance World
 let inOffice = false;        // entre enterOffice() et leaveOffice()
 let officeEntered = false;   // enterOffice() a deja ete lance (une seule fois par chargement)
 let peerBlocked = false;     // identifiant deja pris par un autre onglet
+let peerIdRetries = 0;       // essais apres "identifiant deja pris" (voir handlePeerIdTaken)
+let presenceRefs = null;     // { userRef, connectedRef } Firebase de l'identifiant en cours
+// Canal entre onglets de ce navigateur : un onglet deja dans le bureau repond
+// "pong" a un "ping" (BroadcastChannel : Safari 15.4+, sinon on suppose non).
+// Tout ce que startApp() touche de facon synchrone doit etre declare ICI, au-dessus
+// de l'entree automatique (utilisateur deja connu) : un let/const declare plus bas
+// serait encore dans sa zone morte temporelle a ce moment-la.
+const tabChannel = "BroadcastChannel" in window ? new BroadcastChannel("hisam-tab") : null;
+if (tabChannel) {
+  tabChannel.addEventListener("message", (e) => {
+    if (e.data === "ping" && officeEntered && !peerBlocked) tabChannel.postMessage("pong");
+  });
+}
 let pendingIncoming = {};    // key → { call, kind, timer } : appels entrants en attente
 let lastInGroupAt = {};      // peerId → timestamp du dernier moment ou il etait dans mon groupe
 const POSITION_MIN_INTERVAL_MS = 120;  // ~8 ecritures/s max
@@ -83,6 +104,8 @@ const PENDING_CALL_MS = 2000;
 const LEAVE_GRACE_MS = 1500;
 const LAST_POS_TTL_MS = 2 * 60 * 1000;
 const PEER_OPEN_TIMEOUT_MS = 6000;     // on entre quand meme si le broker PeerJS ne repond pas
+const PEER_ID_RETRY_MS = [2000, 5000]; // identifiant pris sans onglet vivant : nouveaux essais
+const FIREBASE_READ_TIMEOUT_MS = 5000; // lecture des positions a l'entree : on n'attend pas plus
 
 // Audio level analysers
 let audioContext = null;
@@ -109,6 +132,14 @@ const worldCanvas = document.getElementById("world");
 const alreadyOpenEl = document.getElementById("already-open");
 const groupStatusEl = document.getElementById("group-status");
 const micWarningEl = document.getElementById("mic-warning");
+const peerWarningEl = document.getElementById("peer-warning");
+const netWarningEl = document.getElementById("net-warning");
+
+// Petits messages persistants dans la barre du bas (null pour effacer).
+function setWarning(el, text) {
+  el.textContent = text || "";
+  el.style.display = text ? "" : "none";
+}
 
 // Active bar
 const globalMuteBtn = document.getElementById("global-mute-btn");
@@ -169,11 +200,30 @@ loginBtn.addEventListener("click", () => {
   }
   myName = name;
   localStorage.setItem("hisam-name", name);
+  // Safari (macOS) n'autorise un AudioContext a demarrer que pendant un geste
+  // utilisateur. Cree ici, il tourne ; cree plus tard, au fond du code
+  // asynchrone qui suit getUserMedia(), il resterait "suspended" — et comme le
+  // micro traverse ce contexte depuis la reduction de bruit, les pairs ne
+  // recevraient que du silence.
+  try {
+    getOrCreateAudioContext();
+  } catch (err) {
+    console.warn("[HiSam] AudioContext indisponible :", err);
+  }
   startApp();
 });
 
 function startApp() {
-  console.log(`[HiSam] version ${APP_VERSION}`);
+  // Une ligne a demander a quelqu'un pour qui "ca ne marche pas" : elle dit le
+  // navigateur, si la page est en contexte securise (sans quoi pas de micro du
+  // tout) et si l'audio a bien le droit de tourner.
+  console.log(`[HiSam] version ${APP_VERSION} | ${navigator.userAgent}`);
+  console.log(
+    `[HiSam] secureContext=${window.isSecureContext}` +
+    ` | getUserMedia=${!!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)}` +
+    ` | audioContext=${audioContext ? audioContext.state + " @" + audioContext.sampleRate + "Hz" : "absent"}` +
+    ` | audioWorklet=${!!(audioContext && audioContext.audioWorklet)}`
+  );
   myAvatar = currentAvatar();
   localStorage.setItem("hisam-avatar", String(myAvatar)); // memorise le choix (ou le defaut)
   startResyncLoop();
@@ -182,7 +232,15 @@ function startApp() {
   myNameEl.textContent = myName;
   updateNotifBtn();
   setupPresence();
-  setupPeer();
+  // Le script PeerJS vient d'un CDN : bloque par un proxy d'entreprise, il
+  // laissait la page sur un bureau vide sans un mot d'explication.
+  if (typeof Peer === "undefined") {
+    console.error("[HiSam] Bibliotheque PeerJS absente (CDN unpkg bloque ?)");
+    showOverlay("<p><strong>La brique audio n'a pas pu etre chargee.</strong></p>" +
+      "<p>unpkg.com est peut-etre bloque par le reseau. Le bureau reste visible, mais sans la voix.</p>");
+  } else {
+    setupPeer();
+  }
   listenToUsers();
   drawFavicon(false);
   // On entre dans le bureau des que PeerJS est pret (voir setupPeer), ou apres
@@ -190,6 +248,7 @@ function startApp() {
   setTimeout(() => {
     if (!officeEntered && !peerBlocked) {
       console.warn("[HiSam] PeerJS lent ou injoignable, entree dans le bureau sans attendre");
+      setWarning(peerWarningEl, "Serveur vocal injoignable : pas de voix pour l'instant");
       enterOffice();
     }
   }, PEER_OPEN_TIMEOUT_MS);
@@ -216,9 +275,19 @@ function updateNotifBtn() {
 }
 
 // ---- Presence (Firebase) ----
+function teardownPresence() {
+  if (!presenceRefs) return;
+  presenceRefs.connectedRef.off();
+  presenceRefs.userRef.off();
+  presenceRefs.userRef.onDisconnect().cancel();
+  presenceRefs.userRef.remove();
+  presenceRefs = null;
+}
+
 function setupPresence() {
   const userRef = db.ref(`users/${myId}`);
   const connectedRef = db.ref(".info/connected");
+  presenceRefs = { userRef, connectedRef };
 
   connectedRef.on("value", (snap) => {
     if (snap.val() === true) {
@@ -408,7 +477,12 @@ async function installMicStream(rawStream) {
   localStream = processed ? processed.stream : rawStream;
   localStream.getAudioTracks().forEach((t) => { t.enabled = !isMuted; });
   replaceAudioTrackEverywhere(localStream.getAudioTracks()[0]);
-  startLocalAnalyser(localStream);
+  // Le VU-metre est un bonus : son echec ne doit pas empecher le micro de partir.
+  try {
+    startLocalAnalyser(localStream);
+  } catch (err) {
+    console.warn("[HiSam] VU-metre local indisponible :", err);
+  }
 }
 
 async function acquireMic() {
@@ -565,6 +639,10 @@ function showOverlay(html) {
   alreadyOpenEl.style.display = "flex";
 }
 
+function hideOverlay() {
+  alreadyOpenEl.style.display = "none";
+}
+
 async function enterOffice() {
   if (officeEntered) return;
   officeEntered = true;
@@ -604,9 +682,21 @@ async function enterOffice() {
     }
   }
 
-  // Savoir qui est deja ou AVANT de choisir une case d'apparition
-  const snap = await db.ref("users").once("value");
-  feedPositionsToWorld(snap.val() || {});
+  // Savoir qui est deja ou AVANT de choisir une case d'apparition. Si Firebase
+  // ne repond pas (domaine bloque par un reseau d'entreprise, regles...), on
+  // n'attend pas indefiniment devant un bureau vide : on entre sans les autres.
+  const users = await Promise.race([
+    db.ref("users").once("value").then((s) => s.val() || {}),
+    new Promise((resolve) => setTimeout(() => resolve(null), FIREBASE_READ_TIMEOUT_MS)),
+  ]).catch((err) => {
+    console.error("[HiSam] Lecture de /users refusee :", err);
+    return null;
+  });
+  if (users === null) {
+    console.warn("[HiSam] Firebase ne repond pas : entree sans les positions des autres");
+    setWarning(netWarningEl, "Annuaire injoignable : les autres risquent de ne pas apparaitre");
+  }
+  feedPositionsToWorld(users || {});
 
   inOffice = true;
   const pos = world.spawn(loadLastPosition());
@@ -615,7 +705,9 @@ async function enterOffice() {
   updateGroupStatus();
   syncConnections();
   console.log(`[HiSam] Dans le bureau en (${pos.x}, ${pos.y})`);
-  micReady.then(() => { if (inOffice) syncConnections(); });
+  micReady
+    .catch((err) => console.warn("[HiSam] Micro indisponible :", err))
+    .then(() => { if (inOffice) syncConnections(); });
 }
 
 function leaveOffice() {
@@ -734,6 +826,8 @@ function setupPeer() {
     peerReconnectAttempts = 0;
     clearTimeout(peerReconnectTimer);
     peerReconnectTimer = null;
+    setWarning(peerWarningEl, null);
+    if (peerIdRetries) { peerBlocked = false; hideOverlay(); } // le fantome a lache l'identifiant
     if (!officeEntered && !peerBlocked) enterOffice();
     else if (inOffice) syncConnections();
   });
@@ -755,12 +849,8 @@ function setupPeer() {
   peer.on("error", (err) => {
     console.warn("[HiSam] PeerJS error:", err.type, err.message);
     if (err.type === "unavailable-id") {
-      if (!officeEntered) {
-        peerBlocked = true;
-        showOverlay("<p><strong>HiSam est deja ouvert dans un autre onglet.</strong></p><p>Ferme l'autre onglet puis recharge cette page.</p>");
-      } else {
-        console.log("[HiSam] Identifiant PeerJS deja pris (autre onglet ?)");
-      }
+      if (!officeEntered) handlePeerIdTaken();
+      else console.log("[HiSam] Identifiant PeerJS deja pris (autre onglet ?)");
     } else if (err.type === "network") {
       schedulePeerReconnect();
     }
@@ -769,6 +859,75 @@ function setupPeer() {
   peer.on("disconnected", () => {
     schedulePeerReconnect();
   });
+}
+
+// ---- Identifiant PeerJS deja pris ----
+// Un autre onglet de CE navigateur est-il vraiment dans le bureau ? Il repond
+// "pong" a notre "ping" sur tabChannel.
+function otherTabAlive() {
+  return new Promise((resolve) => {
+    if (!tabChannel) return resolve(false);
+    let settled = false;
+    const finish = (alive) => {
+      if (settled) return;
+      settled = true;
+      tabChannel.removeEventListener("message", onMessage);
+      resolve(alive);
+    };
+    const onMessage = (e) => { if (e.data === "pong") finish(true); };
+    tabChannel.addEventListener("message", onMessage);
+    tabChannel.postMessage("ping");
+    setTimeout(() => finish(false), 1000);
+  });
+}
+
+// L'identifiant est deja enregistre sur le broker. Deux cas :
+//  - un autre onglet de ce navigateur est vraiment dans le bureau : on le dit et
+//    on s'arrete la (deux avatars et deux micros pour une personne = larsen) ;
+//  - personne ne repond : c'est un fantome. Onglet mis en sommeil par Safari,
+//    Mac ferme couvercle baisse, page fermee sans que le broker le sache... il
+//    garde l'identifiant jusqu'a une minute. Avant, la personne restait bloquee
+//    a vie devant "deja ouvert dans un autre onglet" sans aucun onglet a fermer.
+//    On reessaie, puis on change d'identifiant : il ne porte rien (prenom et
+//    personnage sont stockes a part) et l'ancien noeud Firebase disparaitra
+//    avec son propre onDisconnect.
+async function handlePeerIdTaken() {
+  peerBlocked = true; // pas d'entree dans le bureau tant que ce n'est pas tranche
+  if (await otherTabAlive()) {
+    console.log("[HiSam] Un autre onglet de ce navigateur est dans le bureau");
+    showOverlay("<p><strong>HiSam est deja ouvert dans un autre onglet.</strong></p><p>Ferme l'autre onglet puis recharge cette page.</p>");
+    return;
+  }
+  if (peerIdRetries < PEER_ID_RETRY_MS.length) {
+    const delay = PEER_ID_RETRY_MS[peerIdRetries++];
+    console.log(`[HiSam] Identifiant PeerJS pris sans onglet vivant : nouvel essai dans ${delay / 1000}s`);
+    showOverlay("<p><strong>Connexion en cours...</strong></p><p>Une ancienne session HiSam est encore enregistree, quelques secondes de patience.</p>");
+    setTimeout(() => { if (!officeEntered) setupPeer(); }, delay);
+    return;
+  }
+  console.warn("[HiSam] Identifiant PeerJS toujours pris : on en prend un neuf");
+  peerIdRetries++;
+  rotateIdentity();
+  setupPeer();
+  // Dernier filet : si meme le nouvel identifiant ne s'ouvre pas, on entre sans voix.
+  setTimeout(() => {
+    if (officeEntered) return;
+    console.warn("[HiSam] PeerJS toujours muet apres changement d'identifiant : entree sans voix");
+    peerBlocked = false;
+    hideOverlay();
+    setWarning(peerWarningEl, "Serveur vocal injoignable : pas de voix pour l'instant");
+    enterOffice();
+  }, PEER_OPEN_TIMEOUT_MS);
+}
+
+function rotateIdentity() {
+  teardownPresence();
+  myId = typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : "xxxx-xxxx-xxxx".replace(/x/g, () => Math.floor(Math.random() * 16).toString(16));
+  localStorage.setItem("hisam-id", myId);
+  localStorage.removeItem("hisam-last-pos");
+  setupPresence();
 }
 
 // Le serveur PeerJS public limite le debit par IP : une reconnexion en boucle
@@ -869,27 +1028,32 @@ function addAudio(peerId, stream) {
     console.log("[HiSam] autoplay bloque pour", peerId, "— en attente d'un geste utilisateur");
   });
 
-  // Start remote analyser for this peer
-  startRemoteAnalyser(peerId, stream);
+  // Indicateur "il parle" : accessoire, et Safari refuse parfois de brancher un
+  // flux distant sur Web Audio. Son echec ne doit pas empecher d'entendre le son.
+  try {
+    startRemoteAnalyser(peerId, stream);
+  } catch (err) {
+    console.warn("[HiSam] Analyseur distant indisponible pour", peerId, ":", err);
+  }
 }
 
-// Global one-shot listener: resume any paused audio on first user gesture (mobile autoplay workaround)
-let autoplayUnlocked = false;
-function unlockAutoplay() {
-  if (autoplayUnlocked) return;
-  autoplayUnlocked = true;
+// A chaque geste utilisateur : relancer ce que la politique d'autoplay a bloque.
+// Surtout pas en "once" : le tout premier clic de la page est celui du bouton
+// "Entrer dans le bureau", a un instant ou il n'existe encore ni element <audio>
+// ni conversation — il n'y aurait rien a debloquer, et plus jamais l'occasion de
+// le faire ensuite. C'est exactement le cas ou Safari laisse le contexte arrete.
+function unlockAutoplay(e) {
+  if (e && e.repeat) return; // touche maintenue pendant la marche
   document.querySelectorAll("#audio-container audio").forEach((a) => {
     if (a.paused && a.srcObject) a.play().catch(() => {});
   });
-  // Also resume AudioContext if suspended
-  if (audioContext && audioContext.state === "suspended") {
-    audioContext.resume();
+  if (audioContext && audioContext.state !== "running") {
+    audioContext.resume().catch(() => {});
   }
-  document.removeEventListener("touchstart", unlockAutoplay);
-  document.removeEventListener("click", unlockAutoplay);
 }
-document.addEventListener("touchstart", unlockAutoplay, { once: true });
-document.addEventListener("click", unlockAutoplay, { once: true });
+document.addEventListener("touchstart", unlockAutoplay);
+document.addEventListener("click", unlockAutoplay);
+document.addEventListener("keydown", unlockAutoplay);
 
 function removeAudio(peerId) {
   stopRemoteAnalyser(peerId);
@@ -912,11 +1076,34 @@ function getOrCreateAudioContext() {
     } catch (err) {
       audioContext = new Ctx();
     }
+    // Safari repasse le contexte en "interrupted" des qu'une autre application
+    // prend l'audio (appel, autre onglet), et ne le relance pas tout seul.
+    audioContext.addEventListener("statechange", onAudioContextStateChange);
   }
-  if (audioContext.state === "suspended") {
-    audioContext.resume();
+  if (audioContext.state !== "running") {
+    audioContext.resume().catch(() => {});
   }
   return audioContext;
+}
+
+// Le contexte s'est arrete alors que le micro le traverse : le flux envoye aux
+// pairs serait silencieux sans que rien ne le signale. On rebascule sur le micro
+// brut (sans reduction de bruit) plutot que de laisser une conversation muette.
+function onAudioContextStateChange() {
+  if (!audioContext || audioContext.state === "running") return;
+  audioContext.resume().catch(() => {});
+  if (!micProcessing || !rawMicStream) return;
+  console.warn(`[HiSam] AudioContext ${audioContext.state} : retour au micro brut`);
+  micProcessing.destroy();
+  micProcessing = null;
+  localStream = rawMicStream;
+  localStream.getAudioTracks().forEach((t) => { t.enabled = !isMuted; });
+  replaceAudioTrackEverywhere(localStream.getAudioTracks()[0]);
+  try {
+    startLocalAnalyser(localStream); // l'ancien pointait sur la chaine detruite
+  } catch (err) {
+    console.warn("[HiSam] VU-metre local indisponible :", err);
+  }
 }
 
 // Appele a chaque frame pour chaque pair (anneau "parle" du monde) : le tampon
@@ -1361,7 +1548,10 @@ function notify(message, type) {
 
 function playSound(type) {
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    // Le contexte partage, jamais un nouveau : WebKit plafonne a quatre
+    // AudioContext par page, et le cinquieme leve. Passe ce seuil, plus aucun
+    // VU-metre ni reduction de bruit ne pouvait demarrer.
+    const ctx = getOrCreateAudioContext();
     const gain = ctx.createGain();
     gain.connect(ctx.destination);
     gain.gain.setValueAtTime(0.15, ctx.currentTime);
@@ -1373,6 +1563,7 @@ function playSound(type) {
       osc.frequency.setValueAtTime(523, ctx.currentTime);
       osc.frequency.setValueAtTime(659, ctx.currentTime + 0.12);
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+      osc.onended = () => gain.disconnect(); // le contexte est partage : on ne laisse pas le noeud derriere
       osc.start(ctx.currentTime);
       osc.stop(ctx.currentTime + 0.4);
     } else if (type === "room") {
@@ -1383,6 +1574,7 @@ function playSound(type) {
       osc.frequency.setValueAtTime(659, ctx.currentTime + 0.1);
       osc.frequency.setValueAtTime(784, ctx.currentTime + 0.2);
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+      osc.onended = () => gain.disconnect(); // le contexte est partage : on ne laisse pas le noeud derriere
       osc.start(ctx.currentTime);
       osc.stop(ctx.currentTime + 0.5);
     } else if (type === "leave") {
@@ -1392,6 +1584,7 @@ function playSound(type) {
       osc.frequency.setValueAtTime(440, ctx.currentTime);
       osc.frequency.setValueAtTime(330, ctx.currentTime + 0.15);
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+      osc.onended = () => gain.disconnect(); // le contexte est partage : on ne laisse pas le noeud derriere
       osc.start(ctx.currentTime);
       osc.stop(ctx.currentTime + 0.3);
     }
