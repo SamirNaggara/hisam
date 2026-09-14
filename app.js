@@ -66,7 +66,7 @@ let micProcessing = null; // chaine de nettoyage { stream, destroy }
 let isMuted = true;       // on arrive micro coupe ; le flux envoye est alors silentStream()
 let silentAudioStream = null; // piste muette envoyee aux pairs tant que le micro est coupe
 let connections = {}; // peerId → MediaConnection
-const APP_VERSION = "arrivee-4";
+const APP_VERSION = "pods-1";
 const PEER_MAX_RECONNECT = 8;
 const RESYNC_INTERVAL_MS = 5000;
 let resyncTimer = null;
@@ -300,7 +300,14 @@ function setupPresence() {
   // Re-register if our entry is deleted (e.g. by a stale onDisconnect)
   let reRegistering = false;
   userRef.on("value", (snap) => {
-    if (!snap.val() && myName && inOffice && !reRegistering) {
+    const val = snap.val();
+    // Un wizz ecrit sur mon noeud par quelqu'un d'autre : on le consomme
+    if (val && val.wizz && val.wizz.ts !== lastWizzTs) {
+      lastWizzTs = val.wizz.ts;
+      userRef.child("wizz").remove();
+      receiveWizz(val.wizz);
+    }
+    if (!val && myName && inOffice && !reRegistering) {
       reRegistering = true;
       userRef.update({
         name: myName,
@@ -376,6 +383,14 @@ function listenToUsers() {
     if (!initialLoadDone) initialLoadDone = true;
 
     allUsers = users;
+
+    // Quelqu'un vient d'etre wizze : sa cabine (ou lui) tremble sur toutes les cartes
+    Object.entries(users).forEach(([id, u]) => {
+      if (u.wizz && u.wizz.ts && wizzSeen[id] !== u.wizz.ts) {
+        wizzSeen[id] = u.wizz.ts;
+        if (world && id !== myId) world.shake(id, 900);
+      }
+    });
 
     // Les positions changent jusqu'a 8 fois par seconde par personne : on ne
     // refait le travail de presence que si elle a vraiment change.
@@ -455,7 +470,7 @@ function renderPresenceBar() {
       person.addEventListener("click", () => joinPerson(id));
       const label = document.createElement("span");
       label.className = "presence-name";
-      label.textContent = (u.name || "?") + (busy ? " · occupe" : "");
+      label.textContent = u.name || "?"; // la pastille ambre et "Secouer" disent deja "occupe"
       if (u.muted === true) {
         const mic = document.createElement("span");
         mic.className = "presence-mic";
@@ -469,7 +484,18 @@ function renderPresenceBar() {
       const variant = Number.isInteger(u.avatar) ? u.avatar : World.avatarFor(id);
       World.drawAvatarPreview(c, variant);
       person.appendChild(c);
-      group.appendChild(person);
+      const wizz = document.createElement("button");
+      wizz.type = "button";
+      wizz.className = "presence-wizz";
+      wizz.textContent = busy ? "Secouer" : "Wizz";
+      wizz.title = busy ? "Secouer sa cabine" : "Lui envoyer un wizz";
+      wizz.disabled = !canWizz(id);
+      wizz.addEventListener("click", (e) => { e.stopPropagation(); sendWizz(id); });
+      const cell = document.createElement("div");
+      cell.className = "presence-cell";
+      cell.appendChild(person);
+      cell.appendChild(wizz);
+      group.appendChild(cell);
     });
     presenceBar.appendChild(group);
   });
@@ -823,7 +849,7 @@ async function enterOffice() {
   const pos = world.spawn(loadLastPosition());
   publishPosition(pos, true);
   world.start();
-  restoreBusy(pos);
+  restoreBusy();
   updateGroupStatus();
   renderPresenceBar();
   updateBusyUi();
@@ -931,17 +957,20 @@ function checkBusyExit(pos) {
   if (!pod || pos.x !== pod.x || pos.y !== pod.y) leaveBusy();
 }
 
-// Apres un refresh : si on reapparait bien dans le pod memorise, on y reste occupe
-function restoreBusy(pos) {
+// Apres un refresh : on retourne dans le pod memorise s'il est toujours libre
+// (spawn() ne peut pas nous y mettre : la case est solide).
+function restoreBusy() {
   let saved = null;
   try { saved = JSON.parse(localStorage.getItem(BUSY_KEY) || "null"); } catch { saved = null; }
   if (!saved || Date.now() - saved.ts > LAST_POS_TTL_MS) { localStorage.removeItem(BUSY_KEY); return; }
   const pod = WORLD_MAP.pods[saved.pod];
-  if (!pod || pos.x !== pod.x || pos.y !== pod.y) { localStorage.removeItem(BUSY_KEY); return; }
+  if (!pod || world.podOccupant(pod) !== null) { localStorage.removeItem(BUSY_KEY); return; }
   isBusy = true;
   busyPod = saved.pod;
+  world.teleportTo(pod.x, pod.y, 1);
   if (!isMuted) muteMic();
   db.ref(`users/${myId}`).update({ busy: true, busyPod: busyPod });
+  console.log(`[HiSam] De retour dans le pod ${busyPod + 1}, toujours occupe`);
 }
 
 // Deux personnes ont pris le meme pod au meme instant : le plus petit id reste
@@ -981,6 +1010,49 @@ function onPodShake(index, pod) {
   world.shakePod(index, 700);
   const occupant = podOccupantId(index);
   if (occupant) sendWizz(occupant);
+}
+
+// ---- Wizz ----
+// Comme sur MSN : l'ecran de l'autre tremble, un buzz, une notification. Le
+// wizz est ecrit sous /users/{cible}/wizz, la cible le consomme (setupPresence)
+// et tout le monde voit sa cabine ou son personnage trembler (listenToUsers).
+const WIZZ_COOLDOWN_MS = 10000;
+const wizzSentAt = {};   // id -> dernier envoi
+const wizzSeen = {};     // id -> dernier ts observe chez les autres
+let lastWizzTs = null;   // dernier wizz recu
+
+function canWizz(id) {
+  return Date.now() - (wizzSentAt[id] || 0) >= WIZZ_COOLDOWN_MS;
+}
+
+function sendWizz(id) {
+  if (!inOffice || id === myId || !allUsers[id]) return;
+  if (!canWizz(id)) return;
+  wizzSentAt[id] = Date.now();
+  db.ref(`users/${id}/wizz`).set({ from: myId, name: myName, ts: firebase.database.ServerValue.TIMESTAMP });
+  shakeScreen(false);
+  if (world) world.shake(id, 900);
+  console.log(`[HiSam] Wizz envoye a ${allUsers[id].name}`);
+  renderPresenceBar();
+  setTimeout(renderPresenceBar, WIZZ_COOLDOWN_MS + 50);
+}
+
+function receiveWizz(wizz) {
+  const name = (wizz && wizz.name) || "Quelqu'un";
+  console.log(`[HiSam] Wizz recu de ${name}`);
+  shakeScreen(true);
+  notify(`${name} te wizz !`, "wizz");
+  if (navigator.vibrate) { try { navigator.vibrate([200, 100, 200, 100, 400]); } catch (e) { /* ignore */ } }
+  if (world) world.shake(myId, 900);
+}
+
+function shakeScreen(strong) {
+  const cls = strong ? "wizz" : "wizz-soft";
+  mainScreen.classList.remove("wizz", "wizz-soft");
+  void mainScreen.offsetWidth; // relance l'animation si elle tournait deja
+  mainScreen.classList.add(cls);
+  const done = () => { mainScreen.classList.remove(cls); mainScreen.removeEventListener("animationend", done); };
+  mainScreen.addEventListener("animationend", done);
 }
 
 // ---- Positions (Firebase /users/{id}/pos, coordonnees de case) ----
@@ -1879,6 +1951,30 @@ function playSound(type) {
       osc.onended = () => gain.disconnect(); // le contexte est partage : on ne laisse pas le noeud derriere
       osc.start(ctx.currentTime);
       osc.stop(ctx.currentTime + 0.3);
+    } else if (type === "wizz") {
+      // Le buzz MSN : onde carree grave, hachee par un tremolo rapide
+      const osc = ctx.createOscillator();
+      const trem = ctx.createGain();
+      const lfo = ctx.createOscillator();
+      const depth = ctx.createGain();
+      osc.type = "square";
+      osc.frequency.setValueAtTime(180, ctx.currentTime);
+      osc.frequency.setValueAtTime(150, ctx.currentTime + 0.35);
+      lfo.type = "square";
+      lfo.frequency.setValueAtTime(25, ctx.currentTime);
+      depth.gain.setValueAtTime(0.5, ctx.currentTime);
+      trem.gain.setValueAtTime(0.5, ctx.currentTime);
+      lfo.connect(depth);
+      depth.connect(trem.gain);
+      osc.connect(trem);
+      trem.connect(gain);
+      gain.gain.setValueAtTime(0.2, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.7);
+      osc.onended = () => { gain.disconnect(); trem.disconnect(); depth.disconnect(); };
+      lfo.start(ctx.currentTime);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.7);
+      lfo.stop(ctx.currentTime + 0.7);
     }
   } catch (e) {
     // Web Audio not available
