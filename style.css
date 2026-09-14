@@ -198,16 +198,16 @@ header h1 {
   font-weight: 500;
 }
 
-/* Qui est au bureau : colonne verticale a droite du monde, une carte par
-   conversation (la mienne en tete, surlignee). Les clics entre les cartes
-   passent au canvas. */
+/* Qui est au bureau : personnages flottants en bas a droite du monde, une
+   carte par conversation, empilees depuis le coin (la mienne au plus pres,
+   surlignee). Les clics entre les cartes passent au canvas. */
 .presence-bar {
   position: absolute;
-  top: 12px;
   right: 12px;
   bottom: 12px;
+  max-height: calc(100% - 24px);
   display: flex;
-  flex-direction: column;
+  flex-direction: column-reverse;
   align-items: flex-end;
   gap: 0.4rem;
   overflow-y: auto;
@@ -245,8 +245,8 @@ header h1 {
 .presence-person {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  padding: 0.2rem 0.5rem 0.2rem 0.3rem;
+  gap: 0.45rem;
+  padding: 0.15rem 0.6rem 0.15rem 0.3rem;
   border: none;
   border-radius: 8px;
   background: transparent;
@@ -273,8 +273,8 @@ header h1 {
 }
 
 .presence-avatar {
-  width: 16px;
-  height: 20px;
+  width: 32px;
+  height: 40px;
   flex: none;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
@@ -652,10 +652,15 @@ header h1 {
   }
 
   .presence-bar {
-    top: 8px;
     right: 8px;
     bottom: 8px;
+    max-height: calc(100% - 16px);
     gap: 0.3rem;
+  }
+
+  .presence-avatar {
+    width: 24px;
+    height: 30px;
   }
 
   .presence-person {
