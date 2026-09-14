@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HiSam</title>
   <link rel="icon" id="favicon" type="image/svg+xml" href="favicon.svg">
-  <link rel="stylesheet" href="style.css?v=arrivee-2">
+  <link rel="stylesheet" href="style.css?v=arrivee-3">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
@@ -29,7 +29,6 @@
         <h1>HiSam</h1>
         <span class="my-badge" id="my-name"></span>
       </div>
-      <div id="presence-bar" class="presence-bar" aria-label="Qui est au bureau"></div>
       <div class="header-right">
         <button id="notif-btn" title="Activer les notifications">Notifications</button>
       </div>
@@ -37,6 +36,9 @@
 
     <div id="world-wrap" class="world-wrap">
       <canvas id="world" class="world-canvas" tabindex="0"></canvas>
+
+      <!-- Qui est au bureau : colonne verticale a droite, par-dessus le monde -->
+      <div id="presence-bar" class="presence-bar" aria-label="Qui est au bureau"></div>
 
       <!-- Video (camera + partage d'ecran) : panneau flottant par-dessus le monde -->
       <div id="video-area" class="video-area" style="display:none">
