@@ -65,7 +65,7 @@ let micProcessing = null; // chaine de nettoyage { stream, destroy }
 let isMuted = true;       // on arrive micro coupe ; le flux envoye est alors silentStream()
 let silentAudioStream = null; // piste muette envoyee aux pairs tant que le micro est coupe
 let connections = {}; // peerId → MediaConnection
-const APP_VERSION = "arrivee-1";
+const APP_VERSION = "arrivee-2";
 const PEER_MAX_RECONNECT = 8;
 const RESYNC_INTERVAL_MS = 5000;
 let resyncTimer = null;
@@ -125,8 +125,7 @@ const usernameInput = document.getElementById("username-input");
 const loginError = document.getElementById("login-error");
 const loginBtn = document.getElementById("login-btn");
 const myNameEl = document.getElementById("my-name");
-const onlineCount = document.getElementById("online-count");
-const onlineTooltip = document.getElementById("online-tooltip");
+const presenceBar = document.getElementById("presence-bar");
 const notifBtn = document.getElementById("notif-btn");
 const audioContainer = document.getElementById("audio-container");
 const worldCanvas = document.getElementById("world");
@@ -386,7 +385,7 @@ function listenToUsers() {
       if (presenceChanged) world.recomputeGroups();  // les flags online participent au calcul
     }
     if (presenceChanged) {
-      updateOnlineCount();
+      renderPresenceBar();
       updateGroupStatus();
       syncConnections();
     }
@@ -404,27 +403,87 @@ function feedPositionsToWorld(users) {
   world.forEachRemote((id) => { if (!users[id]) world.removeRemote(id); });
 }
 
-function updateOnlineCount() {
-  const onlineUsers = Object.values(allUsers).filter(isAtOffice);
-  onlineCount.textContent = `${onlineUsers.length} au bureau`;
+// ---- Barre des presents (header) ----
+// Une pastille par conversation (personnes seules comprises), la mienne
+// surlignee. Cliquer sur quelqu'un d'un autre groupe : on se teleporte a
+// cote de lui, la proximite fait le reste. Source : la partition du monde
+// (avec hysteresis) ; avant l'entree, un groupe par personne.
+const MIC_OFF_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="2" x2="22" y1="2" y2="22"/><path d="M18.89 13.23A7.12 7.12 0 0 0 19 12v-2"/><path d="M5 10v2a7 7 0 0 0 12 5"/><path d="M15 9.34V5a3 3 0 0 0-5.68-1.33"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12"/><line x1="12" x2="12" y1="19" y2="22"/></svg>';
 
-  if (onlineUsers.length === 0) {
-    onlineTooltip.innerHTML = '<div class="online-tooltip-empty">Personne au bureau</div>';
+function renderPresenceBar() {
+  const present = Object.keys(allUsers).filter((id) => id !== myId && isAtOffice(allUsers[id]));
+  let groups;
+  if (world && inOffice) {
+    // Le monde ne connait que les gens dont il a recu la position : on complete
+    // avec les eventuels retardataires pour ne jamais en cacher un.
+    groups = world.getGroups();
+    const seen = new Set(groups.flat());
+    present.forEach((id) => { if (!seen.has(id)) groups.push([id]); });
+    if (!seen.has(myId)) groups.unshift([myId]);
   } else {
-    onlineTooltip.innerHTML = onlineUsers
-      .map((u) => `<div class="online-tooltip-item">${escapeHtml(u.name || "?")}</div>`)
-      .join("");
+    groups = [[myId]].concat(present.map((id) => [id]));
+  }
+
+  // Ma conversation en tete, puis les autres dans l'ordre du monde
+  groups.sort((a, b) => (b.includes(myId) ? 1 : 0) - (a.includes(myId) ? 1 : 0));
+
+  presenceBar.innerHTML = "";
+  groups.forEach((ids) => {
+    const mine = ids.includes(myId);
+    const group = document.createElement("div");
+    group.className = "presence-group" + (mine ? " mine" : "");
+    group.title = mine
+      ? (ids.length > 1 ? "Ta conversation" : "Toi")
+      : (ids.length > 1 ? "Rejoindre cette conversation" : "Rejoindre");
+    ids.forEach((id) => {
+      const me = id === myId;
+      const u = me ? { name: myName, muted: isMuted, avatar: myAvatar } : (allUsers[id] || {});
+      const person = document.createElement(me ? "span" : "button");
+      person.className = "presence-person" + (me ? " me" : "") + (u.muted === true ? " muted" : "");
+      if (!me) {
+        person.type = "button";
+        person.addEventListener("click", () => joinPerson(id));
+      }
+      const c = document.createElement("canvas");
+      c.width = 16; c.height = 20;
+      c.className = "presence-avatar";
+      const variant = Number.isInteger(u.avatar) ? u.avatar : World.avatarFor(id);
+      World.drawAvatarPreview(c, variant);
+      person.appendChild(c);
+      const label = document.createElement("span");
+      label.className = "presence-name";
+      label.textContent = me ? "Toi" : (u.name || "?");
+      person.appendChild(label);
+      if (u.muted === true) {
+        const mic = document.createElement("span");
+        mic.className = "presence-mic";
+        mic.innerHTML = MIC_OFF_ICON;
+        person.appendChild(mic);
+      }
+      group.appendChild(person);
+    });
+    presenceBar.appendChild(group);
+  });
+  if (present.length === 0) {
+    const empty = document.createElement("span");
+    empty.className = "presence-empty";
+    empty.textContent = "Personne d'autre au bureau";
+    presenceBar.appendChild(empty);
   }
 }
 
-onlineCount.addEventListener("click", (e) => {
-  e.stopPropagation();
-  onlineTooltip.classList.toggle("visible");
-});
-
-document.addEventListener("click", () => {
-  onlineTooltip.classList.remove("visible");
-});
+// Rejoindre quelqu'un = se teleporter a cote de lui (voir World.teleportNear)
+function joinPerson(id) {
+  if (!inOffice || !world || id === myId) return;
+  const name = allUsers[id]?.name || "cette personne";
+  if (!world.teleportNear(id)) {
+    setWarning(netWarningEl, `Pas de place a cote de ${name}`);
+    setTimeout(() => { if (netWarningEl.textContent.startsWith("Pas de place")) setWarning(netWarningEl, null); }, 4000);
+    return;
+  }
+  console.log(`[HiSam] Teleporte a cote de ${name}`);
+  if (worldCanvas.focus) worldCanvas.focus({ preventScroll: true });
+}
 
 // ---- Micro ----
 // Traitements natifs du navigateur explicites. voiceIsolation est ignore la ou il
@@ -524,6 +583,7 @@ function muteMic() {
   localStream = silentStream();
   replaceAudioTrackEverywhere(localStream.getAudioTracks()[0]);
   updateGroupStatus();
+  renderPresenceBar();
 }
 
 // Reactive le micro : demande le peripherique, la nouvelle piste remplace la muette.
@@ -542,6 +602,7 @@ async function unmuteMic() {
   micWarningEl.style.display = "none";
   populateMicSelect();
   updateGroupStatus();
+  renderPresenceBar();
   return true;
 }
 
@@ -722,6 +783,7 @@ async function enterOffice() {
       // (que le navigateur ralentit dans un onglet en arriere-plan)
       onMove: (pos, settled) => publishPosition(pos, !!settled),
       onGroupChange,
+      onGroupsChange: () => renderPresenceBar(),
     });
     try {
       await world.load();
@@ -753,6 +815,7 @@ async function enterOffice() {
   publishPosition(pos, true);
   world.start();
   updateGroupStatus();
+  renderPresenceBar();
   syncConnections();
   console.log(`[HiSam] Dans le bureau en (${pos.x}, ${pos.y})`);
 }

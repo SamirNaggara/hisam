@@ -123,6 +123,7 @@
       this.getSpeakingLevel = opts.getSpeakingLevel || (() => 0);
       this.onMove = opts.onMove || (() => {});
       this.onGroupChange = opts.onGroupChange || (() => {});
+      this.onGroupsChange = opts.onGroupsChange || (() => {}); // la partition complete a change
 
       this.tileset = { img: null, meta: null };
       this.walkable = null;
@@ -141,6 +142,8 @@
       this.prevLinks = new Set();
       this.groupMembers = [];
       this.groupSet = new Set();
+      this.groups = [];            // partition complete : tableaux d'ids (moi inclus)
+      this.groupsSignature = "";
 
       this.keys = [];           // codes enfonces, le plus recent en premier
       this.tapDir = -1;         // frappe breve a consommer au prochain pas (un pas par appui)
@@ -381,6 +384,8 @@
       this.prevLinks = new Set();
       this.groupMembers = [];
       this.groupSet = new Set();
+      this.groups = [];
+      this.groupsSignature = "";
     }
 
     // ---- spawn ----
@@ -410,6 +415,36 @@
       this.me.moving = false; this.me.path = []; this.me.target = null;
       this.recomputeGroups();
       return { x: pos.x, y: pos.y, dir: pos.dir };
+    }
+
+    // Se placer a cote de quelqu'un : premiere case libre, dans sa piece, a
+    // moins de deux cases de lui (franchement dans la portee, pas a la limite
+    // de l'hysteresis). _bfs ne traverse que les cases praticables, portes
+    // fermees comprises : on n'atterrit jamais de l'autre cote d'un mur.
+    teleportNear(id) {
+      const r = this.remotes.get(id);
+      if (!r) return false;
+      const occupied = new Set();
+      this.remotes.forEach((o) => occupied.add(o.tx + "," + o.ty));
+      const zone = this.zoneAt(r.tx, r.ty);
+      const maxDist = CONFIG.ENTER_TILES - 0.5;
+      const accept = (x, y) =>
+        !(x === r.tx && y === r.ty) &&
+        !occupied.has(x + "," + y) &&
+        this.zoneAt(x, y) === zone &&
+        Math.hypot(x - r.tx, y - r.ty) <= maxDist;
+      const found = this._bfs(r.tx, r.ty, accept, 300);
+      if (!found) return false;
+      const [x, y] = found;
+      const dx = r.tx - x, dy = r.ty - y;
+      const dir = Math.abs(dx) >= Math.abs(dy) ? (dx < 0 ? 1 : 2) : (dy < 0 ? 3 : 0);
+      this.me.x = x; this.me.y = y; this.me.dir = dir;
+      this.me.px = x * CONFIG.TILE; this.me.py = y * CONFIG.TILE;
+      this.me.moving = false; this.me.path = []; this.me.target = null;
+      this.keys = []; this.tapDir = -1;
+      this.onMove(this.getMyPosition(), true);
+      this.recomputeGroups();
+      return true;
     }
 
     // ---- distants ----
@@ -460,9 +495,27 @@
         this.groupSet = new Set(members);
         this.onGroupChange(members.slice(), prev.slice());
       }
+
+      // Partition complete (pour la barre des presents) : conversations d'abord,
+      // puis les personnes seules ; ids tries. Signalee seulement si elle change,
+      // pas a chacune des ~8 positions par seconde d'un marcheur.
+      const byGroup = new Map();
+      groups.forEach((g, id) => {
+        if (!byGroup.has(g)) byGroup.set(g, []);
+        byGroup.get(g).push(id);
+      });
+      const partition = Array.from(byGroup.values()).map((ids) => ids.sort());
+      partition.sort((a, b) => (b.length - a.length) || (a[0] < b[0] ? -1 : 1));
+      const signature = partition.map((ids) => ids.join(",")).join("|");
+      if (signature !== this.groupsSignature) {
+        this.groupsSignature = signature;
+        this.groups = partition;
+        this.onGroupsChange(this.getGroups());
+      }
     }
 
     getGroupMembers() { return this.groupMembers.slice(); }
+    getGroups() { return this.groups.map((ids) => ids.slice()); }
     isInMyGroup(id) { return this.groupSet.has(id); }
     getMyPosition() { return { x: this.me.x, y: this.me.y, dir: this.me.dir }; }
 
