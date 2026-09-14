@@ -12,6 +12,7 @@
 //   onGroupChange(members, prev)       seulement quand l'ensemble change
 //   onGroupsChange(groups)             la partition complete (pour le panneau des presents)
 //   onPodShake(index, pod)             clic sur une cabine depuis sa facade
+//   onFollowChange(id | null)          on suit quelqu'un pas a pas (follow/unfollow)
 // });
 // await world.load(); world.spawn(); world.start();
 
@@ -127,6 +128,7 @@
       this.onGroupChange = opts.onGroupChange || (() => {});
       this.onGroupsChange = opts.onGroupsChange || (() => {}); // la partition complete a change
       this.onPodShake = opts.onPodShake || (() => {});         // clic sur un pod depuis sa facade
+      this.onFollowChange = opts.onFollowChange || (() => {}); // on suit quelqu'un (id) ou plus personne (null)
 
       this.tileset = { img: null, meta: null };
       this.walkable = null;
@@ -148,6 +150,7 @@
       this.groups = [];            // partition complete : tableaux d'ids (moi inclus)
       this.groupsSignature = "";
       this.shaking = new Map();    // id -> fin (ms, horloge rAF) : la personne tremble
+      this.followId = null;        // on est verrouille sur cette personne : on la suit pas a pas
       this.podShaking = new Map(); // index de pod -> fin : la cabine tremble
 
       this.keys = [];           // codes enfonces, le plus recent en premier
@@ -429,6 +432,48 @@
       this.groupsSignature = "";
       this.shaking.clear();
       this.podShaking.clear();
+      this.followId = null;
+    }
+
+    // ---- suivre quelqu'un ----
+    // Verrouille sur une personne : des qu'elle s'eloigne, on marche pour rester
+    // a cote d'elle. Le premier geste de deplacement (touche, clic) libere.
+    follow(id) {
+      if (id === this.followId) return;
+      this.followId = id;
+      this.onFollowChange(id);
+    }
+
+    unfollow() {
+      if (this.followId === null) return;
+      this.followId = null;
+      this.onFollowChange(null);
+    }
+
+    getFollowing() { return this.followId; }
+
+    _followStep() {
+      const me = this.me;
+      const r = this.remotes.get(this.followId);
+      const p = this.getProfile(this.followId);
+      if (!r || (p && p.online === false) || this.podAt(r.tx, r.ty) || this.podAt(me.x, me.y)) {
+        this.unfollow();
+        return;
+      }
+      const dist = Math.abs(r.tx - me.x) + Math.abs(r.ty - me.y);
+      if (dist <= 1) {
+        // A cote : on se tourne vers la personne, sans bouger
+        const dir = r.tx !== me.x ? (r.tx < me.x ? 1 : 2) : (r.ty < me.y ? 3 : 0);
+        if (dir !== me.dir) { me.dir = dir; this.onMove(this.getMyPosition(), true); }
+        me.path = [];
+        return;
+      }
+      // Chemin recalcule a chaque pas (la cible bouge) ; on s'arrete a cote, pas dessus
+      const path = this.findPath(me.x, me.y, r.tx, r.ty);
+      if (!path || path.length === 0) { me.path = []; return; }
+      if (path.length > 1) path.pop();
+      me.path = path;
+      me.target = null;
     }
 
     // ---- spawn ----
@@ -467,6 +512,7 @@
     // Se poser sur une case, sans verifier qu'elle est praticable (les pods sont
     // solides) : publie la position et recalcule les groupes.
     teleportTo(x, y, dir) {
+      this.unfollow();
       this.me.x = x; this.me.y = y;
       if (Number.isInteger(dir)) this.me.dir = dir;
       this.me.px = x * CONFIG.TILE; this.me.py = y * CONFIG.TILE;
@@ -668,6 +714,7 @@
       this.tapDir = dir;
       this.me.path = [];
       this.me.target = null;
+      this.unfollow();
     }
 
     _onKeyUp(e) {
@@ -693,6 +740,7 @@
           return;
         }
       }
+      this.unfollow();
       this.walkTo(tx, ty);
       if (this.canvas.focus) this.canvas.focus({ preventScroll: true });
     }
@@ -786,6 +834,7 @@
     _tick(dt) {
       const me = this.me, T = CONFIG.TILE;
       if (!me.moving) {
+        if (this.followId !== null && !this.keys.length && this.tapDir < 0) this._followStep();
         let dir = -1;
         if (this.keys.length) dir = this.keys[0].dir;
         else if (this.tapDir >= 0) dir = this.tapDir;

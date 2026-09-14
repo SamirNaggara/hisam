@@ -66,7 +66,7 @@ let micProcessing = null; // chaine de nettoyage { stream, destroy }
 let isMuted = true;       // on arrive micro coupe ; le flux envoye est alors silentStream()
 let silentAudioStream = null; // piste muette envoyee aux pairs tant que le micro est coupe
 let connections = {}; // peerId → MediaConnection
-const APP_VERSION = "pods-1";
+const APP_VERSION = "pods-2";
 const PEER_MAX_RECONNECT = 8;
 const RESYNC_INTERVAL_MS = 5000;
 let resyncTimer = null;
@@ -87,6 +87,7 @@ let inOffice = false;        // entre enterOffice() et leaveOffice()
 let officeEntered = false;   // enterOffice() a deja ete lance (une seule fois par chargement)
 let isBusy = false;          // dans un pod, "occupe" (voir enterBusy)
 let busyPod = null;          // index du pod dans WORLD_MAP.pods
+let followingId = null;      // personne que l'on suit pas a pas (voir World.follow)
 let appStarted = false;      // startApp() ne cable presence/peer/listeners qu'une fois
 let peerBlocked = false;     // identifiant deja pris par un autre onglet
 let peerIdRetries = 0;       // essais apres "identifiant deja pris" (voir handlePeerIdTaken)
@@ -153,6 +154,8 @@ const leaveOfficeBtn = document.getElementById("leave-office-btn");
 const micSelect = document.getElementById("mic-select");
 const cameraBtn = document.getElementById("camera-btn");
 const busyBtn = document.getElementById("busy-btn");
+const moreBtn = document.getElementById("more-btn");
+const moreMenu = document.getElementById("more-menu");
 const screenBtn = document.getElementById("screen-btn");
 const videoArea = document.getElementById("video-area");
 const videoGrid = document.getElementById("video-grid");
@@ -465,8 +468,10 @@ function renderPresenceBar() {
       const busy = u.busy === true;
       const person = document.createElement("button");
       person.type = "button";
-      person.className = "presence-person" + (u.muted === true ? " muted" : "") + (busy ? " busy" : "");
-      person.title = busy ? "Occupe(e) dans un pod : clique pour aller devant sa cabine" : "Rejoindre";
+      const following = followingId === id;
+      person.className = "presence-person" + (u.muted === true ? " muted" : "") + (busy ? " busy" : "") + (following ? " following" : "");
+      person.title = busy ? "Occupe(e) dans un pod : clique pour aller devant sa cabine"
+        : following ? "Tu le suis : clique pour arreter" : "Rejoindre et suivre";
       person.addEventListener("click", () => joinPerson(id));
       const label = document.createElement("span");
       label.className = "presence-name";
@@ -506,12 +511,15 @@ function joinPerson(id) {
   if (!inOffice || !world || id === myId) return;
   const name = allUsers[id]?.name || "cette personne";
   if (allUsers[id]?.busy === true) { visitBusy(id); return; }
+  if (followingId === id) { world.unfollow(); return; } // re-clic : on le lache
   if (!world.teleportNear(id)) {
     setWarning(netWarningEl, `Pas de place a cote de ${name}`);
     setTimeout(() => { if (netWarningEl.textContent.startsWith("Pas de place")) setWarning(netWarningEl, null); }, 4000);
     return;
   }
-  console.log(`[HiSam] Teleporte a cote de ${name}`);
+  // ... et on reste verrouille sur lui : s'il bouge, on le suit
+  world.follow(id);
+  console.log(`[HiSam] Teleporte a cote de ${name}, on le suit`);
   if (worldCanvas.focus) worldCanvas.focus({ preventScroll: true });
 }
 
@@ -819,6 +827,11 @@ async function enterOffice() {
       onGroupChange,
       onGroupsChange: () => renderPresenceBar(),
       onPodShake,
+      onFollowChange: (id) => {
+        followingId = id;
+        updateGroupStatus();
+        renderPresenceBar();
+      },
     });
     try {
       await world.load();
@@ -986,11 +999,23 @@ function resolveBusyConflict() {
 function updateBusyUi() {
   if (!busyBtn) return;
   busyBtn.classList.toggle("active", isBusy);
-  busyBtn.title = isBusy ? "Redevenir disponible (sortir du pod)" : "Occupe : s'isoler dans un pod";
+  busyBtn.textContent = isBusy ? "Redevenir disponible" : "Occupe (s'isoler dans un pod)";
+  busyBtn.title = isBusy ? "Sortir du pod" : "Se teleporter dans un pod libre, micro coupe";
   busyBtn.disabled = !isBusy && (!inOffice || pickPod() === null);
+  moreBtn.classList.toggle("active", isBusy);
 }
 
+// Menu "..." de la barre du bas : les actions moins courantes
+moreBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  moreMenu.classList.toggle("open");
+});
+document.addEventListener("click", (e) => {
+  if (!moreMenu.contains(e.target)) moreMenu.classList.remove("open");
+});
+
 busyBtn.addEventListener("click", () => {
+  moreMenu.classList.remove("open");
   if (isBusy) leaveBusy({ step: true });
   else enterBusy();
 });
@@ -1132,6 +1157,9 @@ function updateGroupStatus() {
     groupStatusEl.textContent = "En conversation avec " + names.join(", ") +
       (isMuted ? " (micro coupe, clique sur le micro pour parler)" : "");
     groupStatusEl.classList.add("active");
+  }
+  if (followingId && allUsers[followingId]) {
+    groupStatusEl.textContent += ` · tu suis ${allUsers[followingId].name} (bouge pour arreter)`;
   }
 }
 

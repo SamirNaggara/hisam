@@ -29,13 +29,13 @@ On donne son prénom une fois, et ensuite on entre directement : dans l'ascenseu
 
 Flèches, ZQSD ou WASD, ou un clic sur la case où aller. Le cercle autour de ton personnage montre la portée de ta voix ; les noms des gens avec qui tu parles passent en vert.
 
-La colonne à droite liste les présents, regroupés par conversation, la tienne en tête. Cliquer sur quelqu'un d'un autre groupe te place à côté de lui (dans sa pièce, jamais à travers un mur) et la voix s'active.
+Le panneau « Rejoindre ? » en bas à droite montre les autres, regroupés par conversation. Cliquer sur quelqu'un te place à côté de lui (dans sa pièce, jamais à travers un mur), la voix s'active, et **tu le suis** : s'il bouge, tu marches derrière lui, jusqu'à ce que tu bouges toi-même ou que tu recliques sur lui.
 
 `skin.html` (sans lien depuis le bureau) permet de changer de personnage ; le changement s'applique aussitôt.
 
 ## Occupé : les pods
 
-Deux cabines vitrées contre le mur est, au-dessus de la cuisine. Le bouton « Occupé » t'y téléporte, micro coupé : on te voit à travers la vitre, personne ne peut entrer ni te parler, et tu apparais en ambre dans le panneau. Tu en sors par le bouton ou d'un pas vers la façade. Deux pods, donc deux occupés à la fois ; le bouton se grise sinon.
+Deux cabines vitrées contre le mur est, au-dessus de la cuisine. « Occupé », dans le menu « ⋯ » de la barre du bas, t'y téléporte, micro coupé : on te voit à travers la vitre, personne ne peut entrer ni te parler, et tu apparais en ambre dans le panneau. Tu en sors par le bouton ou d'un pas vers la façade. Deux pods, donc deux occupés à la fois ; le bouton se grise sinon.
 
 Cliquer sur quelqu'un d'occupé te fait marcher jusqu'à devant sa cabine. Là, un clic sur la cabine la **secoue** : c'est le wizz, comme sur MSN. Son écran tremble, un buzz, une notification, et sa cabine tremble sur toutes les cartes. Le wizz marche aussi sur les gens hors pod (bouton « Wizz » sous chaque personne), dix secondes minimum entre deux wizz vers la même personne.
 

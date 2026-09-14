@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HiSam</title>
   <link rel="icon" id="favicon" type="image/svg+xml" href="favicon.svg">
-  <link rel="stylesheet" href="style.css?v=pods-1">
+  <link rel="stylesheet" href="style.css?v=pods-2">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
@@ -72,9 +72,6 @@
             <div class="audio-level-bar" id="local-level-bar"></div>
           </div>
         </div>
-        <button id="busy-btn" class="btn-mute btn-busy" title="Occupe : s'isoler dans un pod">
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2" width="12" height="20" rx="2"/><line x1="6" y1="7" x2="18" y2="7"/><circle cx="12" cy="14" r="2"/></svg>
-        </button>
         <button id="camera-btn" class="btn-mute" title="Activer la camera">
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5"/><rect x="2" y="6" width="14" height="12" rx="2"/></svg>
         </button>
@@ -92,6 +89,14 @@
             <div class="audio-level-bar" id="remote-level-bar"></div>
           </div>
         </div>
+        <div class="more-wrap">
+          <button id="more-btn" class="btn-mute btn-more" title="Plus">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
+          </button>
+          <div id="more-menu" class="more-menu">
+            <button id="busy-btn" class="more-item" type="button">Occupe (s'isoler dans un pod)</button>
+          </div>
+        </div>
         <button id="leave-office-btn" class="btn-leave-all">Quitter le bureau</button>
       </div>
     </div>
@@ -105,8 +110,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
   <script src="proximity.js?v=world-3"></script>
   <script src="world-map.js?v=pods-1"></script>
-  <script src="world.js?v=pods-1"></script>
+  <script src="world.js?v=pods-2"></script>
   <script src="audio-processing.js?v=audio-2"></script>
-  <script src="app.js?v=pods-1"></script>
+  <script src="app.js?v=pods-2"></script>
 </body>
 </html>
