@@ -11,7 +11,7 @@
 //   onMove({ x, y, dir }, settled)     a chaque pas termine ou demi-tour ; settled = la marche s'arrete la
 //   onGroupChange(members, prev)       seulement quand l'ensemble change
 //   onGroupsChange(groups)             la partition complete (pour le panneau des presents)
-//   onPodShake(index, pod)             clic sur une cabine depuis sa facade
+//   onPodClick(index, pod, atFront)    clic sur une cabine (atFront = on est deja devant)
 //   onFollowChange(id | null)          on suit quelqu'un pas a pas (follow/unfollow)
 // });
 // await world.load(); world.spawn(); world.start();
@@ -127,7 +127,7 @@
       this.onMove = opts.onMove || (() => {});
       this.onGroupChange = opts.onGroupChange || (() => {});
       this.onGroupsChange = opts.onGroupsChange || (() => {}); // la partition complete a change
-      this.onPodShake = opts.onPodShake || (() => {});         // clic sur un pod depuis sa facade
+      this.onPodClick = opts.onPodClick || (() => {});         // clic sur un pod (app.js decide : entrer ou secouer)
       this.onFollowChange = opts.onFollowChange || (() => {}); // on suit quelqu'un (id) ou plus personne (null)
 
       this.tileset = { img: null, meta: null };
@@ -730,15 +730,16 @@
       const wy = (e.clientY - rect.top) / this.scale + this.camY;
       const tx = Math.floor(wx / CONFIG.TILE), ty = Math.floor(wy / CONFIG.TILE);
       const hit = this.podAt(tx, ty);
-      if (hit && !this.me.moving) {
+      if (hit) {
+        // Une cabine : app.js decide (y entrer si elle est libre, la secouer sinon).
+        // On ne marche pas dessus : elle est solide, la cible est sa facade.
         const f = this.podFront(hit.pod);
-        if (this.me.x === f.x && this.me.y === f.y) {
-          // Devant la cabine : on la secoue au lieu de marcher
-          this.me.dir = 2;
-          this.onPodShake(hit.index, hit.pod);
-          if (this.canvas.focus) this.canvas.focus({ preventScroll: true });
-          return;
-        }
+        const atFront = !this.me.moving && this.me.x === f.x && this.me.y === f.y;
+        if (atFront) this.me.dir = 2;
+        this.unfollow();
+        this.onPodClick(hit.index, hit.pod, atFront);
+        if (this.canvas.focus) this.canvas.focus({ preventScroll: true });
+        return;
       }
       this.unfollow();
       this.walkTo(tx, ty);

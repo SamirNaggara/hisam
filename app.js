@@ -66,7 +66,7 @@ let micProcessing = null; // chaine de nettoyage { stream, destroy }
 let isMuted = true;       // on arrive micro coupe ; le flux envoye est alors silentStream()
 let silentAudioStream = null; // piste muette envoyee aux pairs tant que le micro est coupe
 let connections = {}; // peerId → MediaConnection
-const APP_VERSION = "pods-2";
+const APP_VERSION = "pods-3";
 const PEER_MAX_RECONNECT = 8;
 const RESYNC_INTERVAL_MS = 5000;
 let resyncTimer = null;
@@ -88,6 +88,7 @@ let officeEntered = false;   // enterOffice() a deja ete lance (une seule fois p
 let isBusy = false;          // dans un pod, "occupe" (voir enterBusy)
 let busyPod = null;          // index du pod dans WORLD_MAP.pods
 let followingId = null;      // personne que l'on suit pas a pas (voir World.follow)
+let pendingPodEnter = null;  // index du pod dans lequel entrer en arrivant devant sa facade
 let appStarted = false;      // startApp() ne cable presence/peer/listeners qu'une fois
 let peerBlocked = false;     // identifiant deja pris par un autre onglet
 let peerIdRetries = 0;       // essais apres "identifiant deja pris" (voir handlePeerIdTaken)
@@ -823,10 +824,11 @@ async function enterOffice() {
       onMove: (pos, settled) => {
         publishPosition(pos, !!settled);
         if (isBusy) checkBusyExit(pos);
+        if (pendingPodEnter !== null && settled) arrivedForPod(pos);
       },
       onGroupChange,
       onGroupsChange: () => renderPresenceBar(),
-      onPodShake,
+      onPodClick,
       onFollowChange: (id) => {
         followingId = id;
         updateGroupStatus();
@@ -925,9 +927,10 @@ function pickPod() {
   return idx < 0 ? null : idx;
 }
 
-function enterBusy() {
+function enterBusy(preferred) {
   if (!inOffice || !world || isBusy) return;
-  const index = pickPod();
+  pendingPodEnter = null;
+  const index = Number.isInteger(preferred) && podOccupantId(preferred) === null ? preferred : pickPod();
   if (index === null) {
     setWarning(netWarningEl, "Les deux pods sont pris");
     setTimeout(() => { if (netWarningEl.textContent.startsWith("Les deux pods")) setWarning(netWarningEl, null); }, 4000);
@@ -1030,11 +1033,38 @@ function visitBusy(id) {
   if (worldCanvas.focus) worldCanvas.focus({ preventScroll: true });
 }
 
-// Clic sur une cabine depuis sa facade (voir world.js) : on la secoue
-function onPodShake(index, pod) {
-  world.shakePod(index, 700);
+// Clic sur une cabine (voir world.js). Libre : on y entre (en marchant d'abord
+// jusqu'a la facade si on n'y est pas). Occupee : on la secoue depuis la facade.
+function onPodClick(index, pod, atFront) {
+  const front = world.podFront(pod);
   const occupant = podOccupantId(index);
-  if (occupant) sendWizz(occupant);
+  if (isBusy && busyPod === index) return; // c'est ma cabine, j'y suis deja
+  if (occupant) {
+    pendingPodEnter = null;
+    if (atFront) {
+      world.shakePod(index, 700);
+      sendWizz(occupant);
+    } else {
+      world.walkTo(front.x, front.y);
+    }
+    return;
+  }
+  if (atFront || (world.getMyPosition().x === front.x && world.getMyPosition().y === front.y)) {
+    enterBusy(index);
+    return;
+  }
+  pendingPodEnter = index;
+  world.walkTo(front.x, front.y);
+}
+
+// Fin de marche : si on voulait entrer dans une cabine et qu'on est devant, on y entre
+function arrivedForPod(pos) {
+  const index = pendingPodEnter;
+  pendingPodEnter = null;
+  const pod = WORLD_MAP.pods[index];
+  if (!pod) return;
+  const front = world.podFront(pod);
+  if (pos.x === front.x && pos.y === front.y) enterBusy(index);
 }
 
 // ---- Wizz ----

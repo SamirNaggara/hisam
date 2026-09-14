@@ -35,7 +35,7 @@ Le panneau « Rejoindre ? » en bas à droite montre les autres, regroupés par 
 
 ## Occupé : les pods
 
-Deux cabines vitrées contre le mur est, au-dessus de la cuisine. « Occupé », dans le menu « ⋯ » de la barre du bas, t'y téléporte, micro coupé : on te voit à travers la vitre, personne ne peut entrer ni te parler, et tu apparais en ambre dans le panneau. Tu en sors par le bouton ou d'un pas vers la façade. Deux pods, donc deux occupés à la fois ; le bouton se grise sinon.
+Deux cabines vitrées contre le mur est, au-dessus de la cuisine. Un clic sur une cabine libre t'y fait entrer (tu marches jusqu'à sa façade, puis tu y es) ; « Occupé », dans le menu « ⋯ » de la barre du bas, te téléporte directement dans la première libre, micro coupé : on te voit à travers la vitre, personne ne peut entrer ni te parler, et tu apparais en ambre dans le panneau. Tu en sors par le bouton ou d'un pas vers la façade. Deux pods, donc deux occupés à la fois ; le bouton se grise sinon.
 
 Cliquer sur quelqu'un d'occupé te fait marcher jusqu'à devant sa cabine. Là, un clic sur la cabine la **secoue** : c'est le wizz, comme sur MSN. Son écran tremble, un buzz, une notification, et sa cabine tremble sur toutes les cartes. Le wizz marche aussi sur les gens hors pod (bouton « Wizz » sous chaque personne), dix secondes minimum entre deux wizz vers la même personne.
 
