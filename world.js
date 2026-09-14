@@ -6,10 +6,12 @@
 //
 // const world = World.create({
 //   canvas, map: WORLD_MAP, assets: {...}, myId,
-//   getProfile(id)        -> { name, muted, avatar, online } | null
+//   getProfile(id)        -> { name, muted, avatar, online, busy } | null
 //   getSpeakingLevel(id)  -> 0..1
 //   onMove({ x, y, dir }, settled)     a chaque pas termine ou demi-tour ; settled = la marche s'arrete la
 //   onGroupChange(members, prev)       seulement quand l'ensemble change
+//   onGroupsChange(groups)             la partition complete (pour le panneau des presents)
+//   onPodShake(index, pod)             clic sur une cabine depuis sa facade
 // });
 // await world.load(); world.spawn(); world.start();
 
@@ -124,6 +126,7 @@
       this.onMove = opts.onMove || (() => {});
       this.onGroupChange = opts.onGroupChange || (() => {});
       this.onGroupsChange = opts.onGroupsChange || (() => {}); // la partition complete a change
+      this.onPodShake = opts.onPodShake || (() => {});         // clic sur un pod depuis sa facade
 
       this.tileset = { img: null, meta: null };
       this.walkable = null;
@@ -144,6 +147,8 @@
       this.groupSet = new Set();
       this.groups = [];            // partition complete : tableaux d'ids (moi inclus)
       this.groupsSignature = "";
+      this.shaking = new Map();    // id -> fin (ms, horloge rAF) : la personne tremble
+      this.podShaking = new Map(); // index de pod -> fin : la cabine tremble
 
       this.keys = [];           // codes enfonces, le plus recent en premier
       this.tapDir = -1;         // frappe breve a consommer au prochain pas (un pas par appui)
@@ -220,6 +225,42 @@
       for (let i = 0; i < doors.length; i++) {
         const d = doors[i];
         if (d.x === x && y >= d.y && y < d.y + (d.h || 1) && this._doorCovers(d, y, Date.now())) return false;
+      }
+      return true;
+    }
+
+    // ---- pods ----
+    // Cabines individuelles (map.pods) : (x, y) = case ou l'on se tient, toit en
+    // y-1, facade a l'ouest. Solides pour tout le monde : on n'y entre que par
+    // teleportation, et on n'en sort que par la facade.
+    podAt(x, y) {
+      const pods = this.map.pods || [];
+      for (let i = 0; i < pods.length; i++) {
+        const p = pods[i];
+        if (p.x === x && (p.y === y || p.y - 1 === y)) return { index: i, pod: p };
+      }
+      return null;
+    }
+
+    podFront(pod) { return { x: pod.x - 1, y: pod.y }; }
+
+    // Qui se tient dans ce pod (moi ou un distant), sinon null
+    podOccupant(pod) {
+      if (this.me.x === pod.x && this.me.y === pod.y) return this.myId;
+      for (const [id, r] of this.remotes) {
+        if (r.tx === pod.x && r.ty === pod.y) return id;
+      }
+      return null;
+    }
+
+    // Peut-on faire un pas de (fx,fy) vers (nx,ny) ? Depuis une cabine, seule
+    // la case devant la facade est permise.
+    _passable(fx, fy, nx, ny) {
+      if (!this.isWalkable(nx, ny)) return false;
+      const hit = this.podAt(fx, fy);
+      if (hit && hit.pod.y === fy) {
+        const f = this.podFront(hit.pod);
+        return nx === f.x && ny === f.y;
       }
       return true;
     }
@@ -386,6 +427,8 @@
       this.groupSet = new Set();
       this.groups = [];
       this.groupsSignature = "";
+      this.shaking.clear();
+      this.podShaking.clear();
     }
 
     // ---- spawn ----
@@ -421,9 +464,22 @@
     // moins de deux cases de lui (franchement dans la portee, pas a la limite
     // de l'hysteresis). _bfs ne traverse que les cases praticables, portes
     // fermees comprises : on n'atterrit jamais de l'autre cote d'un mur.
+    // Se poser sur une case, sans verifier qu'elle est praticable (les pods sont
+    // solides) : publie la position et recalcule les groupes.
+    teleportTo(x, y, dir) {
+      this.me.x = x; this.me.y = y;
+      if (Number.isInteger(dir)) this.me.dir = dir;
+      this.me.px = x * CONFIG.TILE; this.me.py = y * CONFIG.TILE;
+      this.me.moving = false; this.me.path = []; this.me.target = null;
+      this.keys = []; this.tapDir = -1;
+      this.onMove(this.getMyPosition(), true);
+      this.recomputeGroups();
+    }
+
     teleportNear(id) {
       const r = this.remotes.get(id);
       if (!r) return false;
+      if (this.podAt(r.tx, r.ty)) return false; // dans une cabine : on ne peut pas le rejoindre
       const occupied = new Set();
       this.remotes.forEach((o) => occupied.add(o.tx + "," + o.ty));
       const zone = this.zoneAt(r.tx, r.ty);
@@ -438,13 +494,62 @@
       const [x, y] = found;
       const dx = r.tx - x, dy = r.ty - y;
       const dir = Math.abs(dx) >= Math.abs(dy) ? (dx < 0 ? 1 : 2) : (dy < 0 ? 3 : 0);
-      this.me.x = x; this.me.y = y; this.me.dir = dir;
-      this.me.px = x * CONFIG.TILE; this.me.py = y * CONFIG.TILE;
-      this.me.moving = false; this.me.path = []; this.me.target = null;
-      this.keys = []; this.tapDir = -1;
-      this.onMove(this.getMyPosition(), true);
-      this.recomputeGroups();
+      this.teleportTo(x, y, dir);
       return true;
+    }
+
+    // ---- secousses (wizz) ----
+    shake(id, ms) { this.shaking.set(id, performance.now() + ms); }
+    shakePod(index, ms) { this.podShaking.set(index, performance.now() + ms); }
+
+    _jitter(until, now) {
+      if (!until || now >= until) return [0, 0];
+      return [Math.round(Math.sin(now * 0.09) * 2), Math.round(Math.cos(now * 0.13) * 1.5)];
+    }
+
+    _podJitter(index, pod, now) {
+      const [jx, jy] = this._jitter(this.podShaking.get(index), now);
+      if (jx || jy) return [jx, jy];
+      const occ = this.podOccupant(pod);
+      return occ ? this._jitter(this.shaking.get(occ), now) : [0, 0];
+    }
+
+    // Corps de la cabine : dessine sous les personnages
+    _drawPodsBack(ctx, now) {
+      const T = CONFIG.TILE;
+      (this.map.pods || []).forEach((pod, i) => {
+        const [jx, jy] = this._podJitter(i, pod, now);
+        const px = pod.x * T + jx, py = (pod.y - 1) * T + jy;
+        ctx.fillStyle = "#f4f4f5";
+        ctx.fillRect(px, py, T, 2 * T);
+        ctx.fillStyle = "#d4d4d8";
+        ctx.fillRect(px, py, T, 3);                  // toit
+        ctx.fillRect(px + T - 3, py, 3, 2 * T);      // paroi du fond, contre le mur
+        ctx.fillStyle = "#e4e4e7";
+        ctx.fillRect(px + 2, py + 2 * T - 5, T - 5, 5); // sol de la cabine
+        const occupied = this.podOccupant(pod) !== null;
+        ctx.fillStyle = occupied ? "#f59e0b" : "#22c55e";
+        ctx.fillRect(px + T - 7, py + 5, 3, 3);       // lampe : verte libre, ambre occupee
+      });
+    }
+
+    // Vitre et montants : dessines par-dessus les personnages, on voit a travers
+    _drawPodsFront(ctx, now) {
+      const T = CONFIG.TILE;
+      (this.map.pods || []).forEach((pod, i) => {
+        const [jx, jy] = this._podJitter(i, pod, now);
+        const px = pod.x * T + jx, py = (pod.y - 1) * T + jy;
+        ctx.fillStyle = "rgba(255,255,255,0.36)";
+        ctx.fillRect(px, py + 3, T - 3, 2 * T - 3);   // vitre (facade + face avant)
+        ctx.fillStyle = "rgba(255,255,255,0.55)";
+        ctx.fillRect(px + 2, py + 6, 1, 2 * T - 12);  // reflet
+        ctx.fillStyle = "#fafafa";
+        ctx.fillRect(px, py, 2, 2 * T);               // montant de la facade
+        ctx.fillRect(px, py + 2 * T - 2, T, 2);       // seuil
+        ctx.strokeStyle = "#a1a1aa";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(px + 0.5, py + 0.5, T - 1, 2 * T - 1);
+      });
     }
 
     // ---- distants ----
@@ -516,6 +621,7 @@
 
     getGroupMembers() { return this.groupMembers.slice(); }
     getGroups() { return this.groups.map((ids) => ids.slice()); }
+    getPods() { return (this.map.pods || []).slice(); }
     isInMyGroup(id) { return this.groupSet.has(id); }
     getMyPosition() { return { x: this.me.x, y: this.me.y, dir: this.me.dir }; }
 
@@ -576,6 +682,17 @@
       const wx = (e.clientX - rect.left) / this.scale + this.camX;
       const wy = (e.clientY - rect.top) / this.scale + this.camY;
       const tx = Math.floor(wx / CONFIG.TILE), ty = Math.floor(wy / CONFIG.TILE);
+      const hit = this.podAt(tx, ty);
+      if (hit && !this.me.moving) {
+        const f = this.podFront(hit.pod);
+        if (this.me.x === f.x && this.me.y === f.y) {
+          // Devant la cabine : on la secoue au lieu de marcher
+          this.me.dir = 2;
+          this.onPodShake(hit.index, hit.pod);
+          if (this.canvas.focus) this.canvas.focus({ preventScroll: true });
+          return;
+        }
+      }
       this.walkTo(tx, ty);
       if (this.canvas.focus) this.canvas.focus({ preventScroll: true });
     }
@@ -592,7 +709,7 @@
         if (accept(x, y)) return [x, y];
         for (const [dx, dy] of [[0, 1], [1, 0], [0, -1], [-1, 0]]) {
           const nx = x + dx, ny = y + dy;
-          if (!this.isWalkable(nx, ny) || seen[ny * m.width + nx]) continue;
+          if (!this._passable(x, y, nx, ny) || seen[ny * m.width + nx]) continue;
           seen[ny * m.width + nx] = 1;
           queue.push([nx, ny]);
         }
@@ -627,7 +744,7 @@
         const x = cur % m.width, y = (cur / m.width) | 0;
         for (const [dx, dy] of [[0, 1], [1, 0], [0, -1], [-1, 0]]) {
           const nx = x + dx, ny = y + dy;
-          if (!this.isWalkable(nx, ny)) continue;
+          if (!this._passable(x, y, nx, ny)) continue;
           const ni = ny * m.width + nx;
           if (seen[ni]) continue;
           seen[ni] = 1; prev[ni] = cur;
@@ -655,7 +772,7 @@
       const nx = this.me.x + dx, ny = this.me.y + dy;
       const turned = this.me.dir !== dir;
       this.me.dir = dir;
-      if (!this.isWalkable(nx, ny)) {
+      if (!this._passable(this.me.x, this.me.y, nx, ny)) {
         if (turned) this.onMove(this.getMyPosition(), true);
         return false;
       }
@@ -675,7 +792,7 @@
         else if (me.path.length) {
           const [nx, ny] = me.path[0];
           dir = nx > me.x ? 2 : nx < me.x ? 1 : ny > me.y ? 0 : 3;
-          if (!this.isWalkable(nx, ny)) { me.path = []; me.target = null; dir = -1; }
+          if (!this._passable(me.x, me.y, nx, ny)) { me.path = []; me.target = null; dir = -1; }
           else me.path.shift();
         }
         this.tapDir = -1;
@@ -743,6 +860,7 @@
       ctx.imageSmoothingEnabled = false;
       if (this.floorCanvas) ctx.drawImage(this.floorCanvas, 0, 0);
       this._drawDoors(ctx, Date.now());
+      this._drawPodsBack(ctx, now);
 
       const me = this.me;
       const feet = (e) => [e.px + T / 2, e.py + T - 2];
@@ -796,11 +914,13 @@
         const variant = Number.isInteger(p.avatar) ? p.avatar : avatarFor(ent.id);
         const frame = this._frameIndex(ent.anim, ent.moving);
         const fh = characters.meta ? characters.meta.frameH : 20;
-        const dx = Math.round(ent.e.px), dy = Math.round(ent.e.py + T - fh);
+        const [jx, jy] = this._jitter(this.shaking.get(ent.id), now);
+        const dx = Math.round(ent.e.px) + jx, dy = Math.round(ent.e.py + T - fh) + jy;
         drawSprite(ctx, variant, ent.dir, frame, dx, dy);
-        labels.push({ id: ent.id, name: p.name || "?", muted: !!p.muted, x: dx + T / 2, y: dy });
+        labels.push({ id: ent.id, name: p.name || "?", muted: !!p.muted, busy: !!p.busy, x: dx + T / 2, y: dy });
       });
 
+      this._drawPodsFront(ctx, now);
       if (this.aboveCanvas) ctx.drawImage(this.aboveCanvas, 0, 0);
 
       // Marqueur de destination (clic)
@@ -833,16 +953,17 @@
       labels.forEach((l) => {
         const [sx, syRaw] = toScreen(l.x, l.y);
         const sy = syRaw - 5;
-        const w = ctx.measureText(l.name).width;
+        const text = l.busy ? `${l.name} · occupe` : l.name;
+        const w = ctx.measureText(text).width;
         const padX = 5, h = 15;
         const bw = w + padX * 2 + (l.muted ? 12 : 0);
         const inGroup = l.id === this.myId || this.groupSet.has(l.id);
-        ctx.fillStyle = inGroup ? "rgba(13,148,136,0.85)" : "rgba(28,25,23,0.7)";
+        ctx.fillStyle = l.busy ? "rgba(217,119,6,0.9)" : inGroup ? "rgba(13,148,136,0.85)" : "rgba(28,25,23,0.7)";
         ctx.beginPath();
         ctx.roundRect(Math.round(sx - bw / 2), Math.round(sy - h), Math.round(bw), h, 4);
         ctx.fill();
         ctx.fillStyle = "#fff";
-        ctx.fillText(l.name, Math.round(sx - (l.muted ? 6 : 0)), Math.round(sy - 4));
+        ctx.fillText(text, Math.round(sx - (l.muted ? 6 : 0)), Math.round(sy - 4));
         if (l.muted) {
           const cx = Math.round(sx + bw / 2 - 9), cy = Math.round(sy - h / 2);
           ctx.beginPath();

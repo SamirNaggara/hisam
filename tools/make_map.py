@@ -163,6 +163,13 @@ put(obj, 22, 39, "QQQQQQQQQQQQQQQQ")   # facade des placards (meme meuble, plus 
 for (x, y) in ((16, 4), (37, 4), (16, 23), (37, 23), (37, 29), (17, 33)):
     obj[y][x] = "p" if (x + y) % 2 else "P"
 
+# Pods : deux cabines individuelles contre le mur est, au nord de la cuisine.
+# "O" = toit, "0" = case ou l'on se tient (voir `pods` dans le template).
+PODS = [(37, 25, "a"), (37, 28, "b")]
+for (x, y, _z) in PODS:
+    obj[y - 1][x] = "O"
+    obj[y][x] = "0"
+
 # ============================================================
 # Couloir et ascenseurs
 # ============================================================
@@ -188,6 +195,8 @@ for y in range(40, 48):
     for x in range(17, 24):
         zone[y][x] = "."
 zone[24][16] = "."  # coin nord du mur est de la petite salle (mur, sans importance)
+for (x, y, z) in PODS:
+    zone[y][x] = z  # chaque pod est insonorise : sa propre zone
 
 # ============================================================
 # Verifications
@@ -222,6 +231,9 @@ for target in ((30, 25), (10, 19), (8, 30), (25, 36), (23, 41), (23, 47), (18, 4
     assert reachable(22, 42, *target), ("inaccessible depuis le spawn", target)
 # Les pieces fermees ne doivent etre accessibles que par leur porte
 assert not reachable(18, 42, 15, 22) or True
+
+
+pods_js = "\n".join(f'    {{ x: {x}, y: {y}, zone: "{z}" }},' for (x, y, z) in PODS)
 
 
 def js_rows(layer):
@@ -313,6 +325,9 @@ const WORLD_MAP = {{
     "}}": {{ tile: "bin_blue", solid: true }},
     "Q": {{ tile: "cabinet_front", solid: true }},
     "&": {{ tile: "crate", solid: true }},
+    // Pods (cabines individuelles) : dessines par world.js, la tuile ne sert que de bouchon
+    "O": {{ tile: "wall_top", solid: true, hidden: true }},
+    "0": {{ tile: "wall_top", solid: true, hidden: true }},
   }},
   objects: [
 {js_rows(obj)}
@@ -334,6 +349,13 @@ const WORLD_MAP = {{
   doors: [
     {{ x: 21, y: 41, h: 3, offset: 0 }},
     {{ x: 21, y: 45, h: 3, offset: 32 }},
+  ],
+
+  // Pods : cabines individuelles vitrees (1 case de large, 2 de haut, dos au mur
+  // est, facade a l'ouest). (x, y) = la case ou l'on se tient, le toit est en y-1,
+  // le visiteur se place en x-1. Chaque pod a sa zone : insonorise.
+  pods: [
+{pods_js}
   ],
 
   // Etiquettes dessinees sur le sol
