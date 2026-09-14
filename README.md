@@ -33,6 +33,12 @@ La colonne à droite liste les présents, regroupés par conversation, la tienne
 
 `skin.html` (sans lien depuis le bureau) permet de changer de personnage ; le changement s'applique aussitôt.
 
+## Occupé : les pods
+
+Deux cabines vitrées contre le mur est, au-dessus de la cuisine. Le bouton « Occupé » t'y téléporte, micro coupé : on te voit à travers la vitre, personne ne peut entrer ni te parler, et tu apparais en ambre dans le panneau. Tu en sors par le bouton ou d'un pas vers la façade. Deux pods, donc deux occupés à la fois ; le bouton se grise sinon.
+
+Cliquer sur quelqu'un d'occupé te fait marcher jusqu'à devant sa cabine. Là, un clic sur la cabine la **secoue** : c'est le wizz, comme sur MSN. Son écran tremble, un buzz, une notification, et sa cabine tremble sur toutes les cartes. Le wizz marche aussi sur les gens hors pod (bouton « Wizz » sous chaque personne), dix secondes minimum entre deux wizz vers la même personne.
+
 Un seul onglet HiSam à la fois par navigateur : si un autre est déjà ouvert, un bouton « Utiliser cet onglet » permet de continuer ici, l'autre onglet se retire.
 
 ## Fichiers
