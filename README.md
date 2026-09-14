@@ -1,6 +1,6 @@
 # HiSam
 
-Un petit bureau virtuel en pixel art, façon Pokémon, dans le navigateur. Chacun arrive à l'entrée avec son personnage, se promène dans l'open space, et **pour parler à quelqu'un il suffit de s'en approcher** : la voix s'active toute seule, à deux, trois ou quatre. On s'éloigne, la conversation se coupe. Projet personnel, sans framework, sans backend applicatif.
+Un petit bureau virtuel en pixel art, façon Pokémon, dans le navigateur. Chacun arrive dans l'ascenseur avec son personnage, se promène dans l'open space, et **pour parler à quelqu'un il suffit de s'en approcher** : la voix s'active toute seule, à deux, trois ou quatre. On s'éloigne, la conversation se coupe. Pas envie de marcher ? La colonne de droite montre qui est là et qui parle avec qui : **un clic sur quelqu'un et on se téléporte à côté de lui**. Projet personnel, sans framework, sans backend applicatif.
 
 Une page principale (le bureau), un widget compact à intégrer ailleurs, et une page « qui est là » qui liste les présents.
 
@@ -23,17 +23,27 @@ Navigateur A  <-->  voix en pair a pair (WebRTC)  <-->  Navigateur B
 
 La carte reproduit les locaux de l'Escalator : on arrive par les ascenseurs, on remonte le couloir jusqu'à l'open space et ses deux grandes tables de travail, les tables hautes, puis derrière la cloison le plan de travail café et fruits et le coin cuisine. Sur la gauche, la salle de réunion avec son écran et sa grande table, et en dessous la petite salle avec ses fauteuils. Les deux salles sont fermées : la voix ne passe pas leurs murs.
 
-## Se déplacer
+## Arriver, se déplacer, parler
+
+On donne son prénom une fois, et ensuite on entre directement : dans l'ascenseur, **micro coupé**, avec un personnage tiré au sort la première fois puis toujours le même (mémorisé dans le navigateur). Un clic sur le bouton micro pour parler ; le couper relâche vraiment le micro. Recharger la page dans les deux minutes ramène à la même case.
 
 Flèches, ZQSD ou WASD, ou un clic sur la case où aller. Le cercle autour de ton personnage montre la portée de ta voix ; les noms des gens avec qui tu parles passent en vert.
+
+La colonne à droite liste les présents, regroupés par conversation, la tienne en tête. Cliquer sur quelqu'un d'un autre groupe te place à côté de lui (dans sa pièce, jamais à travers un mur) et la voix s'active.
+
+`skin.html` (sans lien depuis le bureau) permet de changer de personnage ; le changement s'applique aussitôt.
+
+Un seul onglet HiSam à la fois par navigateur : si un autre est déjà ouvert, un bouton « Utiliser cet onglet » permet de continuer ici, l'autre onglet se retire.
 
 ## Fichiers
 
 ```text
 index.html      le bureau
+skin.html       choisir son personnage (page cachée)
 widget.html     version compacte à embarquer
 status.html     « qui est là », liste des présents et de leurs conversations
-app.js          réseau et audio : présence Firebase, positions, connexions PeerJS
+app.js          réseau et audio : présence Firebase, positions, connexions PeerJS, colonne des présents
+audio-processing.js  réduction de bruit du micro (RNNoise + noise gate)
 world.js        moteur du bureau : rendu canvas, déplacements, collisions, groupes
 world-map.js    la carte (couches en chaînes de caractères, éditables à la main)
 proximity.js    calcul des groupes de conversation (fonction pure)

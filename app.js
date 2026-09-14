@@ -22,8 +22,9 @@
 //   /rooms               → ancien systeme de salons, plus utilise (peut etre supprime)
 //
 // Ce fichier est la couche reseau/audio : Firebase (annuaire, presence,
-// positions) + PeerJS (voix et video en pair a pair). Le rendu du bureau et la
-// logique de proximite sont dans world.js / world-map.js / proximity.js.
+// positions) + PeerJS (voix et video en pair a pair), plus la colonne des
+// presents. Le rendu du bureau et la logique de proximite sont dans world.js /
+// world-map.js / proximity.js. Le personnage se choisit sur skin.html.
 //
 // ============================================================
 
@@ -65,7 +66,7 @@ let micProcessing = null; // chaine de nettoyage { stream, destroy }
 let isMuted = true;       // on arrive micro coupe ; le flux envoye est alors silentStream()
 let silentAudioStream = null; // piste muette envoyee aux pairs tant que le micro est coupe
 let connections = {}; // peerId → MediaConnection
-const APP_VERSION = "arrivee-2";
+const APP_VERSION = "arrivee-3";
 const PEER_MAX_RECONNECT = 8;
 const RESYNC_INTERVAL_MS = 5000;
 let resyncTimer = null;
