@@ -321,6 +321,24 @@ header h1 {
   line-height: 1.6;
 }
 
+.overlay-btn {
+  margin-top: 0.75rem;
+  padding: 0.6rem 1.2rem;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.overlay-btn:hover {
+  opacity: 0.9;
+}
+
 /* ---- BARRE DE CONTROLE ---- */
 
 .active-bar {

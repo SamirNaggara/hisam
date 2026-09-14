@@ -97,6 +97,7 @@ const tabChannel = "BroadcastChannel" in window ? new BroadcastChannel("hisam-ta
 if (tabChannel) {
   tabChannel.addEventListener("message", (e) => {
     if (e.data === "ping" && officeEntered && !peerBlocked) tabChannel.postMessage("pong");
+    if (e.data === "takeover") onTakenOver();
   });
 }
 let pendingIncoming = {};    // key → { call, kind, timer } : appels entrants en attente
@@ -820,7 +821,9 @@ async function enterOffice() {
   console.log(`[HiSam] Dans le bureau en (${pos.x}, ${pos.y})`);
 }
 
-function leaveOffice() {
+// Sortir du bureau sans toucher a la presence ni au peer : monde arrete,
+// appels fermes, micro et partages relaches.
+function tearDownSession() {
   inOffice = false;
   officeEntered = false;
   if (world) world.stop();
@@ -836,7 +839,10 @@ function leaveOffice() {
   stopAllShares();
   removeAllRemoteVideos();
   audioContainer.innerHTML = "";
+}
 
+function leaveOffice() {
+  tearDownSession();
   db.ref(`users/${myId}`).remove();
   // hisam-last-pos est garde : "Entrer" a nouveau dans les 2 min ramene au meme endroit
 
@@ -1006,7 +1012,9 @@ async function handlePeerIdTaken() {
   peerBlocked = true; // pas d'entree dans le bureau tant que ce n'est pas tranche
   if (await otherTabAlive()) {
     console.log("[HiSam] Un autre onglet de ce navigateur est dans le bureau");
-    showOverlay("<p><strong>HiSam est deja ouvert dans un autre onglet.</strong></p><p>Ferme l'autre onglet puis recharge cette page.</p>");
+    showOverlay("<p><strong>HiSam est deja ouvert dans un autre onglet.</strong></p>" +
+      "<p>Ferme l'autre onglet, ou continue ici : l'autre onglet sera deconnecte.</p>" +
+      FORCE_TAB_BUTTON);
     return;
   }
   if (peerIdRetries < PEER_ID_RETRY_MS.length) {
@@ -1029,6 +1037,43 @@ async function handlePeerIdTaken() {
     setWarning(peerWarningEl, "Serveur vocal injoignable : pas de voix pour l'instant");
     enterOffice();
   }, PEER_OPEN_TIMEOUT_MS);
+}
+
+// ---- Reprendre HiSam dans cet onglet ----
+// "Deja ouvert dans un autre onglet" est vecu comme un bug quand on ne retrouve
+// pas l'autre onglet (fenetre perdue, onglet endormi...). Un clic suffit : on
+// previent l'autre onglet, qui se retire, et on entre ici sous un identifiant
+// neuf sans attendre que le broker libere l'ancien. L'identifiant ne porte rien
+// (prenom et personnage sont stockes a part) ; on repart de l'ascenseur.
+const FORCE_TAB_BUTTON = '<p><button type="button" id="force-tab-btn" class="overlay-btn">Utiliser cet onglet</button></p>';
+
+alreadyOpenEl.addEventListener("click", (e) => {
+  if (e.target.closest("#force-tab-btn")) takeOverTab();
+});
+
+function takeOverTab() {
+  console.log("[HiSam] Reprise de HiSam dans cet onglet");
+  if (tabChannel) tabChannel.postMessage("takeover");
+  peerBlocked = false;
+  peerIdRetries = 0;
+  hideOverlay();
+  if (peer && !peer.destroyed) peer.destroy();
+  peer = null;
+  rotateIdentity();
+  setupPeer();
+}
+
+// Un autre onglet vient de reprendre HiSam : on se retire proprement.
+function onTakenOver() {
+  if (!officeEntered && !inOffice) return; // rien a ceder
+  console.log("[HiSam] HiSam a ete repris dans un autre onglet");
+  tearDownSession();
+  teardownPresence();
+  if (peer && !peer.destroyed) peer.destroy();
+  peer = null;
+  peerBlocked = true;
+  showOverlay("<p><strong>HiSam a ete repris dans un autre onglet.</strong></p>" +
+    "<p>Continue la-bas, ou reprends ici.</p>" + FORCE_TAB_BUTTON);
 }
 
 function rotateIdentity() {
