@@ -85,6 +85,8 @@ let initialLoadDone = false;
 let world = null;            // instance World
 let inOffice = false;        // entre enterOffice() et leaveOffice()
 let officeEntered = false;   // enterOffice() a deja ete lance (une seule fois par chargement)
+let isBusy = false;          // dans un pod, "occupe" (voir enterBusy)
+let busyPod = null;          // index du pod dans WORLD_MAP.pods
 let appStarted = false;      // startApp() ne cable presence/peer/listeners qu'une fois
 let peerBlocked = false;     // identifiant deja pris par un autre onglet
 let peerIdRetries = 0;       // essais apres "identifiant deja pris" (voir handlePeerIdTaken)
@@ -150,6 +152,7 @@ const micOffIcon = document.getElementById("mic-off-icon");
 const leaveOfficeBtn = document.getElementById("leave-office-btn");
 const micSelect = document.getElementById("mic-select");
 const cameraBtn = document.getElementById("camera-btn");
+const busyBtn = document.getElementById("busy-btn");
 const screenBtn = document.getElementById("screen-btn");
 const videoArea = document.getElementById("video-area");
 const videoGrid = document.getElementById("video-grid");
@@ -377,7 +380,7 @@ function listenToUsers() {
     // Les positions changent jusqu'a 8 fois par seconde par personne : on ne
     // refait le travail de presence que si elle a vraiment change.
     const signature = Object.entries(users)
-      .map(([id, u]) => `${id}:${u.name}:${u.online}:${!!u.pos}:${u.muted}:${u.avatar}`)
+      .map(([id, u]) => `${id}:${u.name}:${u.online}:${!!u.pos}:${u.muted}:${u.avatar}:${u.busy === true}:${u.busyPod}`)
       .sort().join("|");
     const presenceChanged = signature !== lastPresenceSignature;
     lastPresenceSignature = signature;
@@ -387,8 +390,10 @@ function listenToUsers() {
       if (presenceChanged) world.recomputeGroups();  // les flags online participent au calcul
     }
     if (presenceChanged) {
+      resolveBusyConflict();
       renderPresenceBar();
       updateGroupStatus();
+      updateBusyUi();
       syncConnections();
     }
   });
@@ -442,13 +447,15 @@ function renderPresenceBar() {
     group.title = mine ? "Avec toi" : (ids.length > 1 ? "Rejoindre cette conversation" : "Rejoindre");
     ids.forEach((id) => {
       const u = allUsers[id] || {};
+      const busy = u.busy === true;
       const person = document.createElement("button");
       person.type = "button";
-      person.className = "presence-person" + (u.muted === true ? " muted" : "");
+      person.className = "presence-person" + (u.muted === true ? " muted" : "") + (busy ? " busy" : "");
+      person.title = busy ? "Occupe(e) dans un pod : clique pour aller devant sa cabine" : "Rejoindre";
       person.addEventListener("click", () => joinPerson(id));
       const label = document.createElement("span");
       label.className = "presence-name";
-      label.textContent = u.name || "?";
+      label.textContent = (u.name || "?") + (busy ? " · occupe" : "");
       if (u.muted === true) {
         const mic = document.createElement("span");
         mic.className = "presence-mic";
@@ -472,6 +479,7 @@ function renderPresenceBar() {
 function joinPerson(id) {
   if (!inOffice || !world || id === myId) return;
   const name = allUsers[id]?.name || "cette personne";
+  if (allUsers[id]?.busy === true) { visitBusy(id); return; }
   if (!world.teleportNear(id)) {
     setWarning(netWarningEl, `Pas de place a cote de ${name}`);
     setTimeout(() => { if (netWarningEl.textContent.startsWith("Pas de place")) setWarning(netWarningEl, null); }, 4000);
@@ -764,7 +772,7 @@ async function enterOffice() {
       map: WORLD_MAP,
       myId,
       getProfile: (id) => {
-        if (id === myId) return { name: myName, muted: isMuted, avatar: myAvatar, online: true };
+        if (id === myId) return { name: myName, muted: isMuted, avatar: myAvatar, online: true, busy: isBusy };
         const u = allUsers[id];
         if (!u) return null;
         return {
@@ -772,14 +780,19 @@ async function enterOffice() {
           muted: u.muted === true,
           avatar: Number.isInteger(u.avatar) ? u.avatar : World.avatarFor(id),
           online: !!u.online,
+          busy: u.busy === true,
         };
       },
       getSpeakingLevel: speakingLevel,
       // settled = fin de la marche : ecriture immediate, sans attendre le timer
       // (que le navigateur ralentit dans un onglet en arriere-plan)
-      onMove: (pos, settled) => publishPosition(pos, !!settled),
+      onMove: (pos, settled) => {
+        publishPosition(pos, !!settled);
+        if (isBusy) checkBusyExit(pos);
+      },
       onGroupChange,
       onGroupsChange: () => renderPresenceBar(),
+      onPodShake,
     });
     try {
       await world.load();
@@ -810,8 +823,10 @@ async function enterOffice() {
   const pos = world.spawn(loadLastPosition());
   publishPosition(pos, true);
   world.start();
+  restoreBusy(pos);
   updateGroupStatus();
   renderPresenceBar();
+  updateBusyUi();
   syncConnections();
   console.log(`[HiSam] Dans le bureau en (${pos.x}, ${pos.y})`);
 }
@@ -821,6 +836,8 @@ async function enterOffice() {
 function tearDownSession() {
   inOffice = false;
   officeEntered = false;
+  isBusy = false;
+  busyPod = null;
   if (world) world.stop();
 
   Object.values(connections).forEach((call) => call.close());
@@ -845,6 +862,125 @@ function leaveOffice() {
   // sortie/entree declencherait sa limite de debit.
   mainScreen.style.display = "none";
   loginScreen.style.display = "flex";
+}
+
+// ---- Occupe : dans un pod ----
+// Etre occupe, c'est etre dans une cabine (WORLD_MAP.pods) : les autres nous y
+// voient a travers la vitre, personne ne peut y entrer ni nous parler, et le
+// panneau nous montre en "occupe". On en sort par le bouton ou a pied.
+const BUSY_KEY = "hisam-busy";
+
+// Qui occupe ce pod (moi exclu) : quelqu'un qui s'y tient, ou qui l'a declare
+function podOccupantId(index) {
+  const pod = WORLD_MAP.pods[index];
+  return Object.keys(allUsers).find((id) => {
+    if (id === myId) return false;
+    const u = allUsers[id];
+    if (!isAtOffice(u)) return false;
+    return u.busyPod === index || (u.pos.x === pod.x && u.pos.y === pod.y);
+  }) || null;
+}
+
+function pickPod() {
+  const idx = (WORLD_MAP.pods || []).findIndex((_, i) => podOccupantId(i) === null);
+  return idx < 0 ? null : idx;
+}
+
+function enterBusy() {
+  if (!inOffice || !world || isBusy) return;
+  const index = pickPod();
+  if (index === null) {
+    setWarning(netWarningEl, "Les deux pods sont pris");
+    setTimeout(() => { if (netWarningEl.textContent.startsWith("Les deux pods")) setWarning(netWarningEl, null); }, 4000);
+    return;
+  }
+  const pod = WORLD_MAP.pods[index];
+  isBusy = true;
+  busyPod = index;
+  world.teleportTo(pod.x, pod.y, 1); // face a la vitre
+  if (!isMuted) muteMic();
+  db.ref(`users/${myId}`).update({ busy: true, busyPod: index });
+  localStorage.setItem(BUSY_KEY, JSON.stringify({ pod: index, ts: Date.now() }));
+  console.log(`[HiSam] Occupe dans le pod ${index + 1}`);
+  updateBusyUi();
+  updateGroupStatus();
+  renderPresenceBar();
+}
+
+// step = sortir d'un pas devant la cabine (bouton) ; sinon on est deja sorti a pied
+function leaveBusy({ step } = {}) {
+  if (!isBusy) return;
+  const pod = WORLD_MAP.pods[busyPod];
+  isBusy = false;
+  busyPod = null;
+  db.ref(`users/${myId}`).update({ busy: null, busyPod: null });
+  localStorage.removeItem(BUSY_KEY);
+  if (step && world && pod) {
+    const front = world.podFront(pod);
+    if (world.podOccupant({ x: front.x, y: front.y }) === null) world.teleportTo(front.x, front.y, 1);
+  }
+  console.log("[HiSam] De nouveau disponible");
+  updateBusyUi();
+  updateGroupStatus();
+  renderPresenceBar();
+}
+
+// Appele a chaque pas : sorti de la cabine a pied = plus occupe
+function checkBusyExit(pos) {
+  const pod = WORLD_MAP.pods[busyPod];
+  if (!pod || pos.x !== pod.x || pos.y !== pod.y) leaveBusy();
+}
+
+// Apres un refresh : si on reapparait bien dans le pod memorise, on y reste occupe
+function restoreBusy(pos) {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(BUSY_KEY) || "null"); } catch { saved = null; }
+  if (!saved || Date.now() - saved.ts > LAST_POS_TTL_MS) { localStorage.removeItem(BUSY_KEY); return; }
+  const pod = WORLD_MAP.pods[saved.pod];
+  if (!pod || pos.x !== pod.x || pos.y !== pod.y) { localStorage.removeItem(BUSY_KEY); return; }
+  isBusy = true;
+  busyPod = saved.pod;
+  if (!isMuted) muteMic();
+  db.ref(`users/${myId}`).update({ busy: true, busyPod: busyPod });
+}
+
+// Deux personnes ont pris le meme pod au meme instant : le plus petit id reste
+function resolveBusyConflict() {
+  if (!isBusy) return;
+  const rival = Object.keys(allUsers).find((id) => id !== myId && id < myId && allUsers[id]?.online && allUsers[id]?.busyPod === busyPod);
+  if (!rival) return;
+  console.warn("[HiSam] Pod pris en meme temps par quelqu'un d'autre : on change");
+  leaveBusy({ step: true });
+  enterBusy();
+}
+
+function updateBusyUi() {
+  if (!busyBtn) return;
+  busyBtn.classList.toggle("active", isBusy);
+  busyBtn.title = isBusy ? "Redevenir disponible (sortir du pod)" : "Occupe : s'isoler dans un pod";
+  busyBtn.disabled = !isBusy && (!inOffice || pickPod() === null);
+}
+
+busyBtn.addEventListener("click", () => {
+  if (isBusy) leaveBusy({ step: true });
+  else enterBusy();
+});
+
+// Aller voir quelqu'un d'occupe : on marche jusqu'a devant sa cabine
+function visitBusy(id) {
+  const u = allUsers[id];
+  const pod = WORLD_MAP.pods[u?.busyPod];
+  if (!pod) return;
+  const front = world.podFront(pod);
+  world.walkTo(front.x, front.y);
+  if (worldCanvas.focus) worldCanvas.focus({ preventScroll: true });
+}
+
+// Clic sur une cabine depuis sa facade (voir world.js) : on la secoue
+function onPodShake(index, pod) {
+  world.shakePod(index, 700);
+  const occupant = podOccupantId(index);
+  if (occupant) sendWizz(occupant);
 }
 
 // ---- Positions (Firebase /users/{id}/pos, coordonnees de case) ----
@@ -911,6 +1047,11 @@ function onGroupChange(members, prev) {
 
 function updateGroupStatus() {
   if (!world || !inOffice) return;
+  if (isBusy) {
+    groupStatusEl.textContent = "Tu es dans un pod, occupe(e). On peut te secouer en cas de probleme.";
+    groupStatusEl.classList.add("active");
+    return;
+  }
   const names = world.getGroupMembers().map((id) => allUsers[id]?.name || "?");
   if (names.length === 0) {
     groupStatusEl.textContent = "Personne a portee de voix";

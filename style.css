@@ -292,6 +292,21 @@ header h1 {
   background: #78716c;
 }
 
+.presence-person.busy .presence-name {
+  background: #d97706;
+}
+
+.btn-busy.active {
+  background: #fef3c7;
+  border-color: #d97706;
+  color: #b45309;
+}
+
+.btn-busy:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .presence-avatar {
   width: 48px;
   height: 60px;
