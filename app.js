@@ -1817,6 +1817,14 @@ document.addEventListener("visibilitychange", () => {
   if (!document.hidden) stopFaviconBlink();
 });
 
+// ---- Personnage change depuis skin.html (autre onglet) ----
+window.addEventListener("storage", (e) => {
+  if (e.key !== "hisam-avatar" || !appStarted) return;
+  myAvatar = currentAvatar();
+  db.ref(`users/${myId}/avatar`).set(myAvatar);
+  renderPresenceBar();
+});
+
 // ---- Cleanup on close ----
 window.addEventListener("beforeunload", () => {
   // Position memorisee pour reapparaitre au meme endroit apres un refresh

@@ -138,6 +138,19 @@ body {
   opacity: 0.9;
 }
 
+.login-card .btn-link {
+  display: inline-block;
+  margin-top: 1rem;
+  color: var(--accent);
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.login-card .btn-link:hover {
+  text-decoration: underline;
+}
+
 /* ---- MAIN : header + monde + barre ---- */
 
 #main-screen {

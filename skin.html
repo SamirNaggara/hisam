@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HiSam — Personnage</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="stylesheet" href="style.css?v=arrivee-3">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <!-- Page cachee (aucun lien depuis le bureau) : choisir son personnage.
+       Le choix est memorise dans ce navigateur (hisam-avatar) et s'applique
+       immediatement dans l'onglet du bureau s'il est ouvert. -->
+  <div id="login-screen" class="screen">
+    <div class="login-card">
+      <h1>HiSam</h1>
+      <p class="subtitle">Choisis ton personnage</p>
+      <div id="avatar-picker" class="avatar-picker"></div>
+      <p id="skin-status" class="avatar-caption">Clique sur un personnage pour le garder.</p>
+      <a href="index.html" class="btn-link">Retour au bureau</a>
+    </div>
+  </div>
+
+  <script src="world.js?v=arrivee-2"></script>
+  <script>
+    const picker = document.getElementById("avatar-picker");
+    const status = document.getElementById("skin-status");
+
+    function currentAvatar() {
+      const saved = localStorage.getItem("hisam-avatar");
+      if (saved !== null && !Number.isNaN(Number(saved))) return Number(saved) % World.variantCount();
+      return null;
+    }
+
+    World.loadCharacters().then(() => {
+      const selected = currentAvatar();
+      for (let v = 0; v < World.variantCount(); v++) {
+        const c = document.createElement("canvas");
+        c.width = 48;
+        c.height = 60;
+        c.title = `Personnage ${v + 1}`;
+        if (v === selected) c.classList.add("selected");
+        c.addEventListener("click", () => {
+          localStorage.setItem("hisam-avatar", String(v));
+          picker.querySelectorAll("canvas").forEach((el) => el.classList.remove("selected"));
+          c.classList.add("selected");
+          status.textContent = `Personnage ${v + 1} garde.`;
+        });
+        picker.appendChild(c);
+        World.drawAvatarPreview(c, v);
+      }
+    }).catch((err) => {
+      status.textContent = "Impossible de charger les personnages : " + err.message;
+    });
+  </script>
+</body>
+</html>
