@@ -66,7 +66,7 @@ let micProcessing = null; // chaine de nettoyage { stream, destroy }
 let isMuted = true;       // on arrive micro coupe ; le flux envoye est alors silentStream()
 let silentAudioStream = null; // piste muette envoyee aux pairs tant que le micro est coupe
 let connections = {}; // peerId → MediaConnection
-const APP_VERSION = "arrivee-3";
+const APP_VERSION = "arrivee-4";
 const PEER_MAX_RECONNECT = 8;
 const RESYNC_INTERVAL_MS = 5000;
 let resyncTimer = null;
@@ -405,11 +405,12 @@ function feedPositionsToWorld(users) {
   world.forEachRemote((id) => { if (!users[id]) world.removeRemote(id); });
 }
 
-// ---- Barre des presents (header) ----
-// Une pastille par conversation (personnes seules comprises), la mienne
-// surlignee. Cliquer sur quelqu'un d'un autre groupe : on se teleporte a
-// cote de lui, la proximite fait le reste. Source : la partition du monde
-// (avec hysteresis) ; avant l'entree, un groupe par personne.
+// ---- Panneau "Rejoindre ?" ----
+// Flottant en bas a droite du monde : les autres personnes, chacune avec son
+// prenom au-dessus de son personnage, celles qui se parlent cote a cote.
+// Cliquer sur quelqu'un : on se teleporte a cote de lui, la proximite fait le
+// reste. Source : la partition du monde (avec hysteresis) ; avant l'entree, une
+// personne par groupe. On ne s'y affiche pas soi-meme.
 const MIC_OFF_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="2" x2="22" y1="2" y2="22"/><path d="M18.89 13.23A7.12 7.12 0 0 0 19 12v-2"/><path d="M5 10v2a7 7 0 0 0 12 5"/><path d="M15 9.34V5a3 3 0 0 0-5.68-1.33"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12"/><line x1="12" x2="12" y1="19" y2="22"/></svg>';
 
 function renderPresenceBar() {
@@ -421,57 +422,50 @@ function renderPresenceBar() {
     groups = world.getGroups();
     const seen = new Set(groups.flat());
     present.forEach((id) => { if (!seen.has(id)) groups.push([id]); });
-    if (!seen.has(myId)) groups.unshift([myId]);
   } else {
-    groups = [[myId]].concat(present.map((id) => [id]));
+    groups = present.map((id) => [id]);
   }
-
-  // Ma conversation en tete, puis les autres dans l'ordre du monde
+  // Ma conversation en tete, moi retire de la liste
   groups.sort((a, b) => (b.includes(myId) ? 1 : 0) - (a.includes(myId) ? 1 : 0));
+  groups = groups.map((ids) => ({ mine: ids.includes(myId), ids: ids.filter((id) => id !== myId) }))
+    .filter((g) => g.ids.length > 0);
 
   presenceBar.innerHTML = "";
-  groups.forEach((ids) => {
-    const mine = ids.includes(myId);
+  const title = document.createElement("div");
+  title.className = "presence-title";
+  title.textContent = groups.length ? "Rejoindre ?" : "Personne d'autre au bureau";
+  presenceBar.appendChild(title);
+
+  groups.forEach(({ mine, ids }) => {
     const group = document.createElement("div");
     group.className = "presence-group" + (mine ? " mine" : "");
-    group.title = mine
-      ? (ids.length > 1 ? "Ta conversation" : "Toi")
-      : (ids.length > 1 ? "Rejoindre cette conversation" : "Rejoindre");
+    group.title = mine ? "Avec toi" : (ids.length > 1 ? "Rejoindre cette conversation" : "Rejoindre");
     ids.forEach((id) => {
-      const me = id === myId;
-      const u = me ? { name: myName, muted: isMuted, avatar: myAvatar } : (allUsers[id] || {});
-      const person = document.createElement(me ? "span" : "button");
-      person.className = "presence-person" + (me ? " me" : "") + (u.muted === true ? " muted" : "");
-      if (!me) {
-        person.type = "button";
-        person.addEventListener("click", () => joinPerson(id));
+      const u = allUsers[id] || {};
+      const person = document.createElement("button");
+      person.type = "button";
+      person.className = "presence-person" + (u.muted === true ? " muted" : "");
+      person.addEventListener("click", () => joinPerson(id));
+      const label = document.createElement("span");
+      label.className = "presence-name";
+      label.textContent = u.name || "?";
+      if (u.muted === true) {
+        const mic = document.createElement("span");
+        mic.className = "presence-mic";
+        mic.innerHTML = MIC_OFF_ICON;
+        label.appendChild(mic);
       }
+      person.appendChild(label);
       const c = document.createElement("canvas");
       c.width = 16; c.height = 20;
       c.className = "presence-avatar";
       const variant = Number.isInteger(u.avatar) ? u.avatar : World.avatarFor(id);
       World.drawAvatarPreview(c, variant);
       person.appendChild(c);
-      const label = document.createElement("span");
-      label.className = "presence-name";
-      label.textContent = me ? "Toi" : (u.name || "?");
-      person.appendChild(label);
-      if (u.muted === true) {
-        const mic = document.createElement("span");
-        mic.className = "presence-mic";
-        mic.innerHTML = MIC_OFF_ICON;
-        person.appendChild(mic);
-      }
       group.appendChild(person);
     });
     presenceBar.appendChild(group);
   });
-  if (present.length === 0) {
-    const empty = document.createElement("span");
-    empty.className = "presence-empty";
-    empty.textContent = "Personne d'autre au bureau";
-    presenceBar.appendChild(empty);
-  }
 }
 
 // Rejoindre quelqu'un = se teleporter a cote de lui (voir World.teleportNear)
