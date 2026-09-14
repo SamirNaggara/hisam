@@ -62,9 +62,10 @@ let peer = null;
 let localStream = null;   // flux envoye aux pairs (traite si possible)
 let rawMicStream = null;  // pistes du peripherique
 let micProcessing = null; // chaine de nettoyage { stream, destroy }
-let isMuted = false;
+let isMuted = true;       // on arrive micro coupe ; le flux envoye est alors silentStream()
+let silentAudioStream = null; // piste muette envoyee aux pairs tant que le micro est coupe
 let connections = {}; // peerId → MediaConnection
-const APP_VERSION = "audio-2";
+const APP_VERSION = "arrivee-1";
 const PEER_MAX_RECONNECT = 8;
 const RESYNC_INTERVAL_MS = 5000;
 let resyncTimer = null;
@@ -83,6 +84,7 @@ let initialLoadDone = false;
 let world = null;            // instance World
 let inOffice = false;        // entre enterOffice() et leaveOffice()
 let officeEntered = false;   // enterOffice() a deja ete lance (une seule fois par chargement)
+let appStarted = false;      // startApp() ne cable presence/peer/listeners qu'une fois
 let peerBlocked = false;     // identifiant deja pris par un autre onglet
 let peerIdRetries = 0;       // essais apres "identifiant deja pris" (voir handlePeerIdTaken)
 let presenceRefs = null;     // { userRef, connectedRef } Firebase de l'identifiant en cours
@@ -122,7 +124,6 @@ const mainScreen = document.getElementById("main-screen");
 const usernameInput = document.getElementById("username-input");
 const loginError = document.getElementById("login-error");
 const loginBtn = document.getElementById("login-btn");
-const avatarPicker = document.getElementById("avatar-picker");
 const myNameEl = document.getElementById("my-name");
 const onlineCount = document.getElementById("online-count");
 const onlineTooltip = document.getElementById("online-tooltip");
@@ -153,40 +154,20 @@ const videoArea = document.getElementById("video-area");
 const videoGrid = document.getElementById("video-grid");
 
 // ---- Login ----
-// Prenom et personnage deja choisis : on entre directement. Sinon l'ecran de
-// login s'affiche (et "Quitter le bureau" y ramene pour changer l'un ou l'autre).
+// Prenom deja connu : on entre directement, pas de salle d'attente. Sinon un
+// simple champ prenom (premiere visite, ou apres "Quitter le bureau").
 usernameInput.value = myName;
-if (myName && localStorage.getItem("hisam-avatar") !== null) {
+if (myName) {
   startApp();
 }
 
+// Personnage tire au sort la premiere fois, puis toujours le meme (memorise par
+// startApp). La page skin.html permet d'en changer.
 function currentAvatar() {
   const saved = localStorage.getItem("hisam-avatar");
   if (saved !== null && !Number.isNaN(Number(saved))) return Number(saved) % World.variantCount();
-  return World.avatarFor(myId);
+  return Math.floor(Math.random() * World.variantCount());
 }
-
-function initAvatarPicker() {
-  World.loadCharacters().then(() => {
-    avatarPicker.innerHTML = "";
-    const selected = currentAvatar();
-    for (let v = 0; v < World.variantCount(); v++) {
-      const c = document.createElement("canvas");
-      c.width = 48;
-      c.height = 60;
-      c.title = `Personnage ${v + 1}`;
-      if (v === selected) c.classList.add("selected");
-      c.addEventListener("click", () => {
-        localStorage.setItem("hisam-avatar", String(v));
-        avatarPicker.querySelectorAll("canvas").forEach((el) => el.classList.remove("selected"));
-        c.classList.add("selected");
-      });
-      avatarPicker.appendChild(c);
-      World.drawAvatarPreview(c, v);
-    }
-  });
-}
-initAvatarPicker();
 
 usernameInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") loginBtn.click();
@@ -225,12 +206,20 @@ function startApp() {
     ` | audioWorklet=${!!(audioContext && audioContext.audioWorklet)}`
   );
   myAvatar = currentAvatar();
-  localStorage.setItem("hisam-avatar", String(myAvatar)); // memorise le choix (ou le defaut)
-  startResyncLoop();
+  localStorage.setItem("hisam-avatar", String(myAvatar)); // memorise le tirage
   loginScreen.style.display = "none";
   mainScreen.style.display = "flex";
   myNameEl.textContent = myName;
   updateNotifBtn();
+  // Retour apres "Quitter le bureau" : presence, peer et listeners sont deja
+  // en place (un second new Peer(myId) se ferait refuser l'identifiant).
+  if (appStarted) {
+    if (presenceRefs) presenceRefs.userRef.update({ name: myName });
+    enterOffice();
+    return;
+  }
+  appStarted = true;
+  startResyncLoop();
   setupPresence();
   // Le script PeerJS vient d'un CDN : bloque par un proxy d'entreprise, il
   // laissait la page sur un bureau vide sans un mot d'explication.
@@ -509,18 +498,50 @@ async function requestMicStream() {
   }
 }
 
-async function acquireMic() {
-  if (localStream) return true;
+// Piste audio muette. C'est le flux envoye aux pairs tant que le micro est
+// coupe : PeerJS refuse d'appeler sans flux, et une connexion acceptee sans
+// flux ne peut plus en recevoir un ensuite (pas de renegociation). Avec cette
+// piste en place des le depart, le vrai micro la remplace par replaceTrack.
+function silentStream() {
+  if (!silentAudioStream) {
+    silentAudioStream = getOrCreateAudioContext().createMediaStreamDestination().stream;
+  }
+  return silentAudioStream;
+}
+
+// Coupe le micro : la piste muette repart aux pairs, le peripherique est relache.
+function muteMic() {
+  isMuted = true;
+  updateMuteBtn();
+  publishMicState();
+  stopLocalAnalyser();
+  if (micProcessing) {
+    micProcessing.destroy();
+    micProcessing = null;
+  }
+  if (rawMicStream) rawMicStream.getTracks().forEach((t) => t.stop());
+  rawMicStream = null;
+  localStream = silentStream();
+  replaceAudioTrackEverywhere(localStream.getAudioTracks()[0]);
+  updateGroupStatus();
+}
+
+// Reactive le micro : demande le peripherique, la nouvelle piste remplace la muette.
+async function unmuteMic() {
+  // Un clic : Safari autorise ici le demarrage de l'AudioContext (silence sinon)
+  try { getOrCreateAudioContext(); } catch (err) { console.warn("[HiSam] AudioContext indisponible :", err); }
   const rawStream = await requestMicStream();
   if (!rawStream) {
-    console.warn("[HiSam] Mode ecoute seule");
     micWarningEl.style.display = "";
-    return false;
+    return false; // reste coupe
   }
+  isMuted = false;
+  updateMuteBtn();
+  publishMicState();
   await installMicStream(rawStream);
   micWarningEl.style.display = "none";
   populateMicSelect();
-  publishMicState();
+  updateGroupStatus();
   return true;
 }
 
@@ -586,7 +607,7 @@ micSelect.addEventListener("change", () => {
     localStorage.removeItem("hisam-mic-id");
   }
   // Micro coupe : le peripherique est relache, le choix sera pris a la reactivation
-  if (localStream && !isMuted) {
+  if (rawMicStream && !isMuted) {
     switchMicrophone(deviceId);
   }
 });
@@ -594,13 +615,12 @@ micSelect.addEventListener("change", () => {
 // Refresh mic list when devices change (plug/unplug)
 if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
   navigator.mediaDevices.addEventListener("devicechange", () => {
-    if (localStream) populateMicSelect();
+    if (rawMicStream) populateMicSelect();
   });
 }
 
 // ---- Etat du micro publie aux autres ----
 function publishMicState() {
-  if (!localStream) return;
   db.ref(`users/${myId}/muted`).set(isMuted);
 }
 
@@ -610,7 +630,7 @@ function releaseMicStreams() {
     micProcessing = null;
   }
   [localStream, rawMicStream].forEach((s) => {
-    if (s) s.getTracks().forEach((t) => t.stop());
+    if (s && s !== silentAudioStream) s.getTracks().forEach((t) => t.stop());
   });
   localStream = null;
   rawMicStream = null;
@@ -620,43 +640,26 @@ function stopMic() {
   db.ref(`users/${myId}/muted`).remove();
   stopLocalAnalyser();
   releaseMicStreams();
-  isMuted = false;
+  isMuted = true;
   updateMuteBtn();
 }
 
 // ---- Mute ----
 leaveOfficeBtn.addEventListener("click", leaveOffice);
 
-// Couper le micro relache vraiment le peripherique : avec un simple
-// track.enabled = false, le navigateur garde son indicateur "micro en cours
-// d'utilisation" sur l'onglet, et on ne sait plus si on est entendu ou pas.
-// Les connexions restent en place (la piste envoyee aux pairs est juste vide) ;
-// a la reactivation, le micro est redemande et la nouvelle piste remplace
-// l'ancienne partout (installMicStream).
+// On arrive micro coupe, et couper relache vraiment le peripherique : avec un
+// simple track.enabled = false, le navigateur garde son indicateur "micro en
+// cours d'utilisation" sur l'onglet, et on ne sait plus si on est entendu ou
+// pas. Les connexions restent en place : la piste envoyee aux pairs est la
+// piste muette (silentStream), et le vrai micro la remplace a la reactivation.
 let micToggling = false;
 
 globalMuteBtn.addEventListener("click", async () => {
-  if (!localStream || micToggling) return;
+  if (!inOffice || micToggling) return;
   micToggling = true;
   try {
-    if (!isMuted) {
-      isMuted = true;
-      updateMuteBtn();
-      publishMicState();
-      stopLocalAnalyser();
-      if (rawMicStream) rawMicStream.getTracks().forEach((t) => t.stop());
-    } else {
-      const rawStream = await requestMicStream();
-      if (!rawStream) {
-        micWarningEl.style.display = "";
-        return; // reste coupe
-      }
-      isMuted = false;
-      updateMuteBtn();
-      publishMicState();
-      await installMicStream(rawStream);
-      micWarningEl.style.display = "none";
-    }
+    if (!isMuted) muteMic();
+    else await unmuteMic();
   } finally {
     micToggling = false;
   }
@@ -688,9 +691,15 @@ async function enterOffice() {
   if (officeEntered) return;
   officeEntered = true;
 
-  // Le micro est demande en parallele : la demande d'autorisation du navigateur
-  // ne doit pas retarder l'affichage du bureau.
-  const micReady = acquireMic();
+  // On arrive micro coupe : la piste muette part aux pairs, le vrai micro ne
+  // sera demande qu'au clic sur le bouton (un geste : Safari l'exige aussi).
+  isMuted = true;
+  updateMuteBtn();
+  try {
+    localStream = silentStream();
+  } catch (err) {
+    console.warn("[HiSam] Piste muette indisponible :", err);
+  }
 
   if (!world) {
     world = World.create({
@@ -746,9 +755,6 @@ async function enterOffice() {
   updateGroupStatus();
   syncConnections();
   console.log(`[HiSam] Dans le bureau en (${pos.x}, ${pos.y})`);
-  micReady
-    .catch((err) => console.warn("[HiSam] Micro indisponible :", err))
-    .then(() => { if (inOffice) syncConnections(); });
 }
 
 function leaveOffice() {
@@ -769,7 +775,7 @@ function leaveOffice() {
   audioContainer.innerHTML = "";
 
   db.ref(`users/${myId}`).remove();
-  localStorage.removeItem("hisam-last-pos");
+  // hisam-last-pos est garde : "Entrer" a nouveau dans les 2 min ramene au meme endroit
 
   // `peer` est conserve : se re-enregistrer sur le broker public a chaque
   // sortie/entree declencherait sa limite de debit.
@@ -846,7 +852,8 @@ function updateGroupStatus() {
     groupStatusEl.textContent = "Personne a portee de voix";
     groupStatusEl.classList.remove("active");
   } else {
-    groupStatusEl.textContent = "En conversation avec " + names.join(", ");
+    groupStatusEl.textContent = "En conversation avec " + names.join(", ") +
+      (isMuted ? " (micro coupe, clique sur le micro pour parler)" : "");
     groupStatusEl.classList.add("active");
   }
 }
