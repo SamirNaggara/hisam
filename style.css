@@ -824,3 +824,23 @@ header h1 {
     width: 180px;
   }
 }
+
+/* Overlay de diagnostic (index.html?debug) : lisible sur un telephone, ne gene pas les tapotements */
+.debug-overlay {
+  position: fixed;
+  top: 52px;
+  left: 6px;
+  z-index: 9999;
+  max-width: calc(100vw - 12px);
+  max-height: 60vh;
+  overflow: auto;
+  margin: 0;
+  padding: 6px 8px;
+  font: 11px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #e8ffe8;
+  background: rgba(0, 0, 0, 0.78);
+  border-radius: 6px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  pointer-events: none;
+}

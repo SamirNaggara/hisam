@@ -66,7 +66,7 @@ let micProcessing = null; // chaine de nettoyage { stream, destroy }
 let isMuted = true;       // on arrive micro coupe ; le flux envoye est alors silentStream()
 let silentAudioStream = null; // piste muette envoyee aux pairs tant que le micro est coupe
 let connections = {}; // peerId → MediaConnection
-const APP_VERSION = "pods-3";
+const APP_VERSION = "pods-4";
 const PEER_MAX_RECONNECT = 8;
 const RESYNC_INTERVAL_MS = 5000;
 let resyncTimer = null;
@@ -669,15 +669,20 @@ async function populateMicSelect() {
   }
 }
 
+// replaceTrack est asynchrone et peut echouer (Safari surtout) : sans ca, le
+// bouton dirait "micro allume" alors que la piste muette part toujours.
 function replaceAudioTrackEverywhere(newTrack) {
-  Object.values(connections).forEach((call) => {
-    if (call.peerConnection) {
-      const senders = call.peerConnection.getSenders();
-      const audioSender = senders.find((s) => s.track && s.track.kind === "audio");
-      if (audioSender) {
-        audioSender.replaceTrack(newTrack);
-      }
+  Object.entries(connections).forEach(([id, call]) => {
+    if (!call.peerConnection) return;
+    const senders = call.peerConnection.getSenders();
+    const audioSender = senders.find((s) => s.track && s.track.kind === "audio");
+    if (!audioSender) {
+      console.warn(`[HiSam] Pas d'emetteur audio vers ${id} : la piste ne peut pas etre remplacee`);
+      return;
     }
+    audioSender.replaceTrack(newTrack).catch((err) => {
+      console.warn(`[HiSam] replaceTrack vers ${id} a echoue :`, err);
+    });
   });
 }
 
@@ -2106,6 +2111,80 @@ function stopFaviconBlink() {
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) stopFaviconBlink();
 });
+
+// ---- Diagnostic en direct ----
+// index.html?debug (ou localStorage hisam-debug=on) : un overlay qui dit, une
+// fois par seconde, ce que WebRTC mesure vraiment. Fait pour un telephone, ou
+// il n'y a pas de console : une capture d'ecran suffit pour comprendre si le
+// son atteint l'encodeur (niveau source), part (paquets envoyes), arrive
+// (paquets recus) et est joue (element audio pas en pause, temps qui avance).
+const debugOverlayEl = document.getElementById("debug-overlay");
+const debugPrev = {}; // id -> { sent, recv } du tour precedent, pour les debits
+function debugEnabled() {
+  try {
+    return /[?&]debug/.test(location.search) || localStorage.getItem("hisam-debug") === "on";
+  } catch (err) {
+    return false;
+  }
+}
+async function debugTick() {
+  const lines = [];
+  const ctx = audioContext;
+  lines.push(`HiSam ${APP_VERSION} | ${navigator.userAgent.replace(/^Mozilla\/5\.0 /, "").slice(0, 80)}`);
+  lines.push(
+    `secure=${window.isSecureContext} ctx=${ctx ? ctx.state + "@" + ctx.sampleRate : "absent"}` +
+    ` worklet=${!!(ctx && ctx.audioWorklet)} visible=${!document.hidden}`
+  );
+  const mode = !localStream ? "aucun" : localStream === silentAudioStream ? "muette" : micProcessing ? "RNNoise" : "brut";
+  const lt = localStream && localStream.getAudioTracks()[0];
+  const rt = rawMicStream && rawMicStream.getAudioTracks()[0];
+  lines.push(
+    `micro: coupe=${isMuted} toggling=${micToggling} piste=${mode}` +
+    (lt ? ` [${lt.readyState} enabled=${lt.enabled} muted=${lt.muted}]` : "") +
+    (rt ? ` brut=[${rt.readyState} muted=${rt.muted} ${rt.getSettings().sampleRate || "?"}Hz]` : "") +
+    ` niveau=${localAnalyser ? getAudioLevel(localAnalyser).toFixed(2) : "-"}`
+  );
+  const ids = Object.keys(connections);
+  lines.push(`peer=${peer ? (peer.open ? "ouvert" : peer.disconnected ? "deconnecte" : "...") : "absent"} connexions=${ids.length} groupe=${world ? world.getGroupMembers().length : 0}`);
+  for (const id of ids) {
+    const call = connections[id];
+    const pc = call.peerConnection;
+    const name = allUsers[id]?.name || id.slice(0, 8);
+    let sent = 0, recv = 0, srcLevel = null, inLevel = null, concealed = 0, sender = "-";
+    if (pc) {
+      try {
+        const stats = await pc.getStats();
+        stats.forEach((s) => {
+          if (s.type === "outbound-rtp" && s.kind === "audio") sent = s.packetsSent || 0;
+          if (s.type === "inbound-rtp" && s.kind === "audio") {
+            recv = s.packetsReceived || 0;
+            if (typeof s.audioLevel === "number") inLevel = s.audioLevel;
+            concealed = s.concealedSamples || 0;
+          }
+          if (s.type === "media-source" && s.kind === "audio" && typeof s.audioLevel === "number") srcLevel = s.audioLevel;
+        });
+      } catch (err) { /* stats indisponibles */ }
+      const snd = pc.getSenders().find((x) => x.track && x.track.kind === "audio");
+      if (snd) sender = `${snd.track.readyState}${snd.track === lt ? "" : " (PAS la piste locale)"}`;
+    }
+    const prev = debugPrev[id] || { sent, recv };
+    debugPrev[id] = { sent, recv };
+    const a = document.getElementById(`audio-${id}`);
+    const ra = remoteAnalysers[id];
+    lines.push(
+      `- ${name}: ${pc ? pc.connectionState + "/" + pc.iceConnectionState : "?"} ${call.open ? "ouvert" : "ferme"} ${call.__initiator === myId ? "(j'appelle)" : "(il appelle)"}\n` +
+      `    envoi: piste=${sender} niveau_src=${srcLevel === null ? "-" : srcLevel.toFixed(2)} paquets=${sent} (+${sent - prev.sent}/s)\n` +
+      `    recu: paquets=${recv} (+${recv - prev.recv}/s) niveau=${inLevel === null ? "-" : inLevel.toFixed(2)} masques=${concealed}` +
+      ` analyseur=${ra ? getAudioLevel(ra.analyser).toFixed(2) : "-"}\n` +
+      `    <audio>: ${a ? `${a.paused ? "PAUSE" : "joue"} t=${a.currentTime.toFixed(1)} ready=${a.readyState} vol=${a.volume}` : "absent"}`
+    );
+  }
+  debugOverlayEl.textContent = lines.join("\n");
+}
+if (debugEnabled()) {
+  debugOverlayEl.style.display = "";
+  setInterval(() => { debugTick().catch((err) => { debugOverlayEl.textContent = "debug: " + err; }); }, 1000);
+}
 
 // ---- Personnage change depuis skin.html (autre onglet) ----
 window.addEventListener("storage", (e) => {

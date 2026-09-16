@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HiSam</title>
   <link rel="icon" id="favicon" type="image/svg+xml" href="favicon.svg">
-  <link rel="stylesheet" href="style.css?v=pods-2">
+  <link rel="stylesheet" href="style.css?v=pods-4">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
@@ -104,6 +104,8 @@
 
   <!-- Audio elements container (hidden) -->
   <div id="audio-container" style="display:none"></div>
+  <!-- Diagnostic en direct (index.html?debug) : ce que WebRTC mesure vraiment -->
+  <pre id="debug-overlay" class="debug-overlay" style="display:none"></pre>
 
   <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
@@ -112,6 +114,6 @@
   <script src="world-map.js?v=pods-1"></script>
   <script src="world.js?v=pods-3"></script>
   <script src="audio-processing.js?v=audio-2"></script>
-  <script src="app.js?v=pods-3"></script>
+  <script src="app.js?v=pods-4"></script>
 </body>
 </html>
