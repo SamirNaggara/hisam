@@ -458,6 +458,265 @@ header h1 {
   color: var(--accent);
 }
 
+/* ---- STATUT (header) ---- */
+
+.status-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.75rem;
+  padding: 0.35rem 0.7rem;
+  border: 1.5px solid #bbf7d0;
+  border-radius: 999px;
+  background: #f0fdf4;
+  color: #15803d;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+
+.status-btn.busy {
+  border-color: #fecaca;
+  background: var(--danger-light);
+  color: #b91c1c;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--online);
+  flex-shrink: 0;
+}
+
+.status-btn.busy .status-dot,
+.room-member.busy .status-dot {
+  background: var(--danger);
+}
+
+/* ---- HALL DES SALONS ---- */
+
+.stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.rooms-view {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 1.5rem 1rem;
+}
+
+.rooms-inner {
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.rooms-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.rooms-header h2 {
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.new-room-form {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.new-room-form input {
+  width: 180px;
+  padding: 0.4rem 0.7rem;
+  border: 1.5px solid #e7e5e4;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-family: inherit;
+  outline: none;
+}
+
+.new-room-form input:focus {
+  border-color: var(--accent);
+}
+
+.btn-create-room {
+  font-size: 0.85rem;
+  padding: 0.4rem 0.8rem;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-family: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.btn-create-room:hover {
+  opacity: 0.9;
+}
+
+.rooms-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.room-card {
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  transition: box-shadow 0.2s;
+  border-left: 3px solid transparent;
+}
+
+.room-card:hover {
+  box-shadow: var(--shadow-lg);
+}
+
+.room-card.room-active {
+  border-left-color: var(--accent);
+}
+
+.room-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  gap: 0.75rem;
+}
+
+.room-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.room-name {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.room-count {
+  font-size: 0.75rem;
+  color: var(--text-soft);
+}
+
+.btn-room-action {
+  padding: 0.4rem 0.9rem;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: opacity 0.2s;
+  flex-shrink: 0;
+}
+
+.btn-room-action.btn-join {
+  background: var(--accent);
+  color: white;
+}
+
+.btn-room-action.btn-confirm {
+  background: #f59e0b;
+  max-width: 55%;
+  text-align: right;
+}
+
+.btn-room-action.btn-leave {
+  background: var(--danger);
+  color: white;
+}
+
+.btn-room-action:hover {
+  opacity: 0.9;
+}
+
+.room-members,
+.lobby-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  color: var(--text-soft);
+}
+
+.room-members {
+  padding: 0 1.25rem 0.85rem;
+}
+
+.lobby-list {
+  margin-top: 1.25rem;
+}
+
+.lobby-title {
+  margin-right: 0.25rem;
+}
+
+.room-member {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.3rem 0.2rem 0.55rem;
+  border-radius: 999px;
+  background: #f5f5f4;
+  color: var(--text);
+}
+
+.room-member.me {
+  padding-right: 0.55rem;
+}
+
+.room-member .presence-mic {
+  color: var(--danger);
+}
+
+.chip-wizz {
+  font-size: 0.65rem;
+  padding: 0.1rem 0.4rem;
+  border: 1px solid #e7e5e4;
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--text-soft);
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 600;
+}
+
+.chip-wizz:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.chip-wizz:disabled {
+  opacity: 0.4;
+  cursor: default;
+  border-color: #e7e5e4;
+  color: var(--text-soft);
+}
+
+.btn-mute:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
 /* ---- MONDE ---- */
 
 .world-wrap {
@@ -822,6 +1081,18 @@ header h1 {
 
   .video-area {
     width: 180px;
+  }
+
+  .rooms-view {
+    padding: 1rem 0.75rem;
+  }
+
+  .new-room-form input {
+    width: 130px;
+  }
+
+  .status-btn .status-label {
+    display: none;
   }
 }
 

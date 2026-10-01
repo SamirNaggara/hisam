@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HiSam</title>
   <link rel="icon" id="favicon" type="image/svg+xml" href="favicon.svg">
-  <link rel="stylesheet" href="style.css?v=pods-4">
+  <link rel="stylesheet" href="style.css?v=salons-1">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
@@ -15,7 +15,7 @@
   <div id="login-screen" class="screen">
     <div class="login-card">
       <h1>HiSam</h1>
-      <p class="subtitle">Le bureau virtuel</p>
+      <p class="subtitle">Les salons vocaux de l'equipe</p>
       <input type="text" id="username-input" placeholder="Ton prenom" autocomplete="off" maxlength="20">
       <p id="login-error" class="login-error"></p>
       <button id="login-btn">Entrer</button>
@@ -30,17 +30,36 @@
         <span class="my-badge" id="my-name"></span>
       </div>
       <div class="header-right">
+        <button id="status-btn" class="status-btn" type="button"><span class="status-dot"></span><span class="status-label">Disponible</span></button>
         <button id="notif-btn" title="Activer les notifications">Notifications</button>
       </div>
     </header>
 
-    <div id="world-wrap" class="world-wrap">
-      <canvas id="world" class="world-canvas" tabindex="0"></canvas>
+    <div class="stage">
+      <!-- Hall : les salons et qui est dedans -->
+      <section id="rooms-view" class="rooms-view">
+        <div class="rooms-inner">
+          <div class="rooms-header">
+            <h2>Salons</h2>
+            <form id="new-room-form" class="new-room-form" autocomplete="off">
+              <input type="text" id="new-room-input" placeholder="Nouveau salon" maxlength="30">
+              <button type="submit" class="btn-create-room">Creer</button>
+            </form>
+          </div>
+          <div id="rooms-list" class="rooms-list"></div>
+          <div id="lobby-list" class="lobby-list"></div>
+        </div>
+      </section>
 
-      <!-- Qui est au bureau : colonne verticale a droite, par-dessus le monde -->
-      <div id="presence-bar" class="presence-bar" aria-label="Qui est au bureau"></div>
+      <!-- Salon Bureau : la carte 2D -->
+      <div id="world-wrap" class="world-wrap" style="display:none">
+        <canvas id="world" class="world-canvas" tabindex="0"></canvas>
 
-      <!-- Video (camera + partage d'ecran) : panneau flottant par-dessus le monde -->
+        <!-- Qui est au bureau : colonne verticale a droite, par-dessus le monde -->
+        <div id="presence-bar" class="presence-bar" aria-label="Qui est au bureau"></div>
+      </div>
+
+      <!-- Video (camera + partage d'ecran) : panneau flottant -->
       <div id="video-area" class="video-area" style="display:none">
         <div id="video-grid" class="video-grid"></div>
       </div>
@@ -56,7 +75,7 @@
     <!-- Barre de controle (toujours visible dans le bureau) -->
     <div id="active-bar" class="active-bar">
       <div class="active-bar-status" id="active-bar-status">
-        <span id="group-status" class="group-status">Personne a portee de voix</span>
+        <span id="group-status" class="group-status">Connexion...</span>
         <span id="mic-warning" class="mic-warning" style="display:none">Micro indisponible, ecoute seule</span>
         <span id="peer-warning" class="mic-warning" style="display:none"></span>
         <span id="net-warning" class="mic-warning" style="display:none"></span>
@@ -95,9 +114,10 @@
           </button>
           <div id="more-menu" class="more-menu">
             <button id="busy-btn" class="more-item" type="button">Occupe (s'isoler dans un pod)</button>
+            <button id="map-toggle-btn" class="more-item" type="button">Carte du bureau (beta)</button>
           </div>
         </div>
-        <button id="leave-office-btn" class="btn-leave-all">Quitter le bureau</button>
+        <button id="leave-room-btn" class="btn-leave-all" style="display:none">Quitter le salon</button>
       </div>
     </div>
   </div>
@@ -114,6 +134,6 @@
   <script src="world-map.js?v=pods-1"></script>
   <script src="world.js?v=pods-3"></script>
   <script src="audio-processing.js?v=audio-2"></script>
-  <script src="app.js?v=pods-4"></script>
+  <script src="app.js?v=salons-1"></script>
 </body>
 </html>

@@ -1,5 +1,5 @@
 // ============================================================
-// HiSam — Bureau virtuel 2D avec chat vocal de proximite
+// HiSam — Salons vocaux, avec un bureau 2D en option
 // ============================================================
 //
 // SETUP (5 min) :
@@ -8,7 +8,7 @@
 // 2. Cree un projet (nom: "hisam" par ex, desactive Google Analytics)
 // 3. Dans le projet > "Build" > "Realtime Database" > "Create Database"
 //    - Region: europe-west1
-//    - Start in TEST MODE (important)
+//    - Regles : /users et /logs en lecture/ecriture
 // 4. Dans "Project settings" (engrenage) > "General" > scroll down
 //    - Clique "Add app" > Web (</>)
 //    - Nom: "hisam"
@@ -16,14 +16,21 @@
 // 5. Remplace les valeurs dans FIREBASE_CONFIG
 //
 // Structure Firebase :
-//   /users/{userId}  → { name, online, avatar, muted, ts, pos: { x, y, dir } }
-//                      (pos = coordonnees de case dans le bureau, dir 0..3)
+//   /users/{userId}  → { name, online, avatar, muted, status, ts,
+//                        room: { id, name },        (absent = dans le hall)
+//                        pos: { x, y, dir }, busy, busyPod }  (salon "bureau" seulement)
+//                      status = "available" | "busy"
 //   /logs/{pushId}   → { type, user, ts, date }   (date = ts en clair, heure locale)
 //   /rooms               → ancien systeme de salons, plus utilise (peut etre supprime)
 //
+// Un salon n'existe qu'a travers ses membres : users/{id}/room. Le dernier qui
+// part l'emporte avec lui (sauf "General", toujours affiche). Un salon a la fois.
+// Le salon "bureau" est la carte 2D (switch dans le menu "...") : on n'y parle
+// qu'aux gens de son groupe de proximite.
+//
 // Ce fichier est la couche reseau/audio : Firebase (annuaire, presence,
-// positions) + PeerJS (voix et video en pair a pair), plus la colonne des
-// presents. Le rendu du bureau et la logique de proximite sont dans world.js /
+// salons, positions) + PeerJS (voix et video en pair a pair), plus le hall des
+// salons. Le rendu du bureau et la logique de proximite sont dans world.js /
 // world-map.js / proximity.js. Le personnage se choisit sur skin.html.
 //
 // ============================================================
@@ -66,7 +73,7 @@ let micProcessing = null; // chaine de nettoyage { stream, destroy }
 let isMuted = true;       // on arrive micro coupe ; le flux envoye est alors silentStream()
 let silentAudioStream = null; // piste muette envoyee aux pairs tant que le micro est coupe
 let connections = {}; // peerId → MediaConnection
-const APP_VERSION = "pods-4";
+const APP_VERSION = "salons-1";
 const PEER_MAX_RECONNECT = 8;
 const RESYNC_INTERVAL_MS = 5000;
 let resyncTimer = null;
@@ -81,10 +88,21 @@ let allUsers = {}; // userId → { name, online, avatar, muted, ts }
 let knownUsers = {}; // for notification diffing
 let initialLoadDone = false;
 
-// Monde
+// Salons
+const GENERAL_ROOM = { id: "general", name: "General" };
+const OFFICE_ROOM = { id: "bureau", name: "Bureau (carte)" };
+const ROOM_KEY = "hisam-last-room";   // { id, name, ts } : on y revient apres un refresh
+const STATUS_KEY = "hisam-status";
+const MAP_KEY = "hisam-map";          // "on" : le salon Bureau (carte 2D) est propose
+let myRoom = null;           // { id, name } du salon ou je suis, null = dans le hall
+let myStatus = localStorage.getItem(STATUS_KEY) === "busy" ? "busy" : "available";
+let statusBeforePod = null;  // statut a remettre en sortant d'un pod
+let joinConfirm = null;      // { id, until } : salon avec quelqu'un d'occupe, second clic attendu
+
+// Monde (salon Bureau)
 let world = null;            // instance World
-let inOffice = false;        // entre enterOffice() et leaveOffice()
-let officeEntered = false;   // enterOffice() a deja ete lance (une seule fois par chargement)
+let inOffice = false;        // dans le salon Bureau, monde lance (enterMap / leaveMap)
+let appEntered = false;      // enterApp() a deja ete lance (une seule fois par chargement)
 let isBusy = false;          // dans un pod, "occupe" (voir enterBusy)
 let busyPod = null;          // index du pod dans WORLD_MAP.pods
 let followingId = null;      // personne que l'on suit pas a pas (voir World.follow)
@@ -101,7 +119,7 @@ let presenceRefs = null;     // { userRef, connectedRef } Firebase de l'identifi
 const tabChannel = "BroadcastChannel" in window ? new BroadcastChannel("hisam-tab") : null;
 if (tabChannel) {
   tabChannel.addEventListener("message", (e) => {
-    if (e.data === "ping" && officeEntered && !peerBlocked) tabChannel.postMessage("pong");
+    if (e.data === "ping" && appEntered && !peerBlocked) tabChannel.postMessage("pong");
     if (e.data === "takeover") onTakenOver();
   });
 }
@@ -135,6 +153,13 @@ const presenceBar = document.getElementById("presence-bar");
 const notifBtn = document.getElementById("notif-btn");
 const audioContainer = document.getElementById("audio-container");
 const worldCanvas = document.getElementById("world");
+const worldWrap = document.getElementById("world-wrap");
+const roomsView = document.getElementById("rooms-view");
+const roomsList = document.getElementById("rooms-list");
+const lobbyList = document.getElementById("lobby-list");
+const newRoomForm = document.getElementById("new-room-form");
+const newRoomInput = document.getElementById("new-room-input");
+const statusBtn = document.getElementById("status-btn");
 const alreadyOpenEl = document.getElementById("already-open");
 const groupStatusEl = document.getElementById("group-status");
 const micWarningEl = document.getElementById("mic-warning");
@@ -151,10 +176,11 @@ function setWarning(el, text) {
 const globalMuteBtn = document.getElementById("global-mute-btn");
 const micIcon = document.getElementById("mic-icon");
 const micOffIcon = document.getElementById("mic-off-icon");
-const leaveOfficeBtn = document.getElementById("leave-office-btn");
+const leaveRoomBtn = document.getElementById("leave-room-btn");
 const micSelect = document.getElementById("mic-select");
 const cameraBtn = document.getElementById("camera-btn");
 const busyBtn = document.getElementById("busy-btn");
+const mapToggleBtn = document.getElementById("map-toggle-btn");
 const moreBtn = document.getElementById("more-btn");
 const moreMenu = document.getElementById("more-menu");
 const screenBtn = document.getElementById("screen-btn");
@@ -219,13 +245,8 @@ function startApp() {
   mainScreen.style.display = "flex";
   myNameEl.textContent = myName;
   updateNotifBtn();
-  // Retour apres "Quitter le bureau" : presence, peer et listeners sont deja
-  // en place (un second new Peer(myId) se ferait refuser l'identifiant).
-  if (appStarted) {
-    if (presenceRefs) presenceRefs.userRef.update({ name: myName });
-    enterOffice();
-    return;
-  }
+  updateStatusBtn();
+  if (appStarted) return;
   appStarted = true;
   startResyncLoop();
   setupPresence();
@@ -243,10 +264,10 @@ function startApp() {
   // On entre dans le bureau des que PeerJS est pret (voir setupPeer), ou apres
   // un delai si le serveur de signalisation ne repond pas (sans audio).
   setTimeout(() => {
-    if (!officeEntered && !peerBlocked) {
+    if (!appEntered && !peerBlocked) {
       console.warn("[HiSam] PeerJS lent ou injoignable, entree dans le bureau sans attendre");
       setWarning(peerWarningEl, "Serveur vocal injoignable : pas de voix pour l'instant");
-      enterOffice();
+      enterApp();
     }
   }, PEER_OPEN_TIMEOUT_MS);
 }
@@ -281,6 +302,21 @@ function teardownPresence() {
   presenceRefs = null;
 }
 
+// Ce que je publie sur mon noeud. Le salon n'est ecrit que si j'en ai un : un
+// second onglet bloque ("deja ouvert") partage mon identifiant et ne doit pas
+// sortir le premier de son salon.
+function presenceFields() {
+  const fields = {
+    name: myName,
+    online: true,
+    avatar: myAvatar,
+    status: myStatus,
+    ts: firebase.database.ServerValue.TIMESTAMP,
+  };
+  if (myRoom) fields.room = myRoom;
+  return fields;
+}
+
 function setupPresence() {
   const userRef = db.ref(`users/${myId}`);
   const connectedRef = db.ref(".info/connected");
@@ -288,12 +324,7 @@ function setupPresence() {
 
   connectedRef.on("value", (snap) => {
     if (snap.val() === true) {
-      userRef.update({
-        name: myName,
-        online: true,
-        avatar: myAvatar,
-        ts: firebase.database.ServerValue.TIMESTAMP,
-      });
+      userRef.update(presenceFields());
       userRef.onDisconnect().remove();
       publishMicState();
       // Apres une coupure reseau, onDisconnect a pu effacer ma position
@@ -311,17 +342,12 @@ function setupPresence() {
       userRef.child("wizz").remove();
       receiveWizz(val.wizz);
     }
-    if (!val && myName && inOffice && !reRegistering) {
+    if (!val && myName && appEntered && !reRegistering) {
       reRegistering = true;
-      userRef.update({
-        name: myName,
-        online: true,
-        avatar: myAvatar,
-        ts: firebase.database.ServerValue.TIMESTAMP,
-      }).then(() => {
+      userRef.update(presenceFields()).then(() => {
         userRef.onDisconnect().remove();
         publishMicState();
-        republishPosition();
+        if (inOffice) republishPosition();
         reRegistering = false;
       });
     }
@@ -347,12 +373,17 @@ function formatDate(d) {
 }
 
 // ---- Listen to users ----
-// "Au bureau" = en ligne ET une position publiee. Entre la connexion et
-// l'entree (attente de PeerJS, onglet bloque par "deja ouvert", monde qui ne
-// charge pas...) la personne est enregistree mais pas dans le bureau : elle ne
-// doit ni apparaitre dans la liste, ni declencher de notification.
-function isAtOffice(u) {
-  return !!u && u.online === true && !!u.pos;
+function isOnline(u) {
+  return !!u && u.online === true && !!u.name;
+}
+
+// Occupe : statut choisi, ou isole dans un pod du bureau
+function isBusyUser(u) {
+  return !!u && (u.status === "busy" || u.busy === true);
+}
+
+function roomIdOf(u) {
+  return isOnline(u) && u.room && u.room.id ? u.room.id : null;
 }
 
 function listenToUsers() {
@@ -361,11 +392,11 @@ function listenToUsers() {
 
     if (initialLoadDone) {
       Object.entries(users).forEach(([id, user]) => {
-        const wasIn = isAtOffice(knownUsers[id]);
-        const isIn = isAtOffice(user);
+        const wasIn = isOnline(knownUsers[id]);
+        const isIn = isOnline(user);
         if (!wasIn && isIn) {
           writeLog("connect", user.name);
-          if (id !== myId) notify(`${user.name} est arrive(e) au bureau`, "online");
+          if (id !== myId) notify(`${user.name} est en ligne`, "online");
         } else if (wasIn && !isIn) {
           writeLog("disconnect", knownUsers[id].name);
         }
@@ -373,10 +404,20 @@ function listenToUsers() {
 
       // Utilisateur supprime (deconnexion par onDisconnect().remove())
       Object.entries(knownUsers).forEach(([id, prev]) => {
-        if (!users[id] && isAtOffice(prev)) {
+        if (!users[id] && isOnline(prev)) {
           writeLog("disconnect", prev.name);
         }
       });
+
+      // Arrivees / departs dans mon salon (le bureau a sa propre logique de
+      // groupes, voir onGroupChange)
+      if (myRoom && myRoom.id !== OFFICE_ROOM.id) {
+        const inMine = (u) => roomIdOf(u) === myRoom.id;
+        const joined = Object.keys(users).filter((id) => id !== myId && inMine(users[id]) && !inMine(knownUsers[id]));
+        const left = Object.keys(knownUsers).filter((id) => id !== myId && inMine(knownUsers[id]) && !inMine(users[id]));
+        joined.forEach((id) => notify(`${users[id].name} a rejoint ${myRoom.name}`, "room"));
+        if (left.length && !joined.length) playSound("leave");
+      }
     }
 
     knownUsers = {};
@@ -399,7 +440,7 @@ function listenToUsers() {
     // Les positions changent jusqu'a 8 fois par seconde par personne : on ne
     // refait le travail de presence que si elle a vraiment change.
     const signature = Object.entries(users)
-      .map(([id, u]) => `${id}:${u.name}:${u.online}:${!!u.pos}:${u.muted}:${u.avatar}:${u.busy === true}:${u.busyPod}`)
+      .map(([id, u]) => `${id}:${u.name}:${u.online}:${!!u.pos}:${u.muted}:${u.avatar}:${u.busy === true}:${u.busyPod}:${u.status}:${u.room?.id}`)
       .sort().join("|");
     const presenceChanged = signature !== lastPresenceSignature;
     lastPresenceSignature = signature;
@@ -410,20 +451,24 @@ function listenToUsers() {
     }
     if (presenceChanged) {
       resolveBusyConflict();
+      renderRooms();
       renderPresenceBar();
       updateGroupStatus();
       updateBusyUi();
+      flushPendingIncoming();
       syncConnections();
+      cleanupConnections();
     }
   });
 }
 
 let lastPresenceSignature = null;
 
+// Le monde ne voit que les gens du salon Bureau
 function feedPositionsToWorld(users) {
   Object.entries(users).forEach(([id, u]) => {
     if (id === myId) return;
-    if (u.pos && u.online) world.setRemote(id, u.pos);
+    if (u.pos && roomIdOf(u) === OFFICE_ROOM.id) world.setRemote(id, u.pos);
     else world.removeRemote(id);
   });
   world.forEachRemote((id) => { if (!users[id]) world.removeRemote(id); });
@@ -438,17 +483,16 @@ function feedPositionsToWorld(users) {
 const MIC_OFF_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="2" x2="22" y1="2" y2="22"/><path d="M18.89 13.23A7.12 7.12 0 0 0 19 12v-2"/><path d="M5 10v2a7 7 0 0 0 12 5"/><path d="M15 9.34V5a3 3 0 0 0-5.68-1.33"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12"/><line x1="12" x2="12" y1="19" y2="22"/></svg>';
 
 function renderPresenceBar() {
-  const present = Object.keys(allUsers).filter((id) => id !== myId && isAtOffice(allUsers[id]));
-  let groups;
-  if (world && inOffice) {
-    // Le monde ne connait que les gens dont il a recu la position : on complete
-    // avec les eventuels retardataires pour ne jamais en cacher un.
-    groups = world.getGroups();
-    const seen = new Set(groups.flat());
-    present.forEach((id) => { if (!seen.has(id)) groups.push([id]); });
-  } else {
-    groups = present.map((id) => [id]);
+  if (!world || !inOffice) {
+    presenceBar.innerHTML = "";
+    return;
   }
+  const present = Object.keys(allUsers).filter((id) => id !== myId && roomIdOf(allUsers[id]) === OFFICE_ROOM.id && allUsers[id].pos);
+  // Le monde ne connait que les gens dont il a recu la position : on complete
+  // avec les eventuels retardataires pour ne jamais en cacher un.
+  let groups = world.getGroups();
+  const seen = new Set(groups.flat());
+  present.forEach((id) => { if (!seen.has(id)) groups.push([id]); });
   // Ma conversation en tete, moi retire de la liste
   groups.sort((a, b) => (b.includes(myId) ? 1 : 0) - (a.includes(myId) ? 1 : 0));
   groups = groups.map((ids) => ({ mine: ids.includes(myId), ids: ids.filter((id) => id !== myId) }))
@@ -750,7 +794,7 @@ function stopMic() {
 }
 
 // ---- Mute ----
-leaveOfficeBtn.addEventListener("click", leaveOffice);
+leaveRoomBtn.addEventListener("click", () => leaveRoom());
 
 // On arrive micro coupe, et couper relache vraiment le peripherique : avec un
 // simple track.enabled = false, le navigateur garde son indicateur "micro en
@@ -760,7 +804,7 @@ leaveOfficeBtn.addEventListener("click", leaveOffice);
 let micToggling = false;
 
 globalMuteBtn.addEventListener("click", async () => {
-  if (!inOffice || micToggling) return;
+  if (!myRoom || micToggling) return;
   micToggling = true;
   try {
     if (!isMuted) muteMic();
@@ -792,9 +836,11 @@ function hideOverlay() {
   alreadyOpenEl.style.display = "none";
 }
 
-async function enterOffice() {
-  if (officeEntered) return;
-  officeEntered = true;
+// Entree dans l'appli (une fois PeerJS pret) : le hall des salons, micro coupe.
+// On retourne dans le salon d'avant un refresh, ou celui d'un lien #join=.
+async function enterApp() {
+  if (appEntered) return;
+  appEntered = true;
 
   // On arrive micro coupe : la piste muette part aux pairs, le vrai micro ne
   // sera demande qu'au clic sur le bouton (un geste : Safari l'exige aussi).
@@ -806,6 +852,310 @@ async function enterOffice() {
     console.warn("[HiSam] Piste muette indisponible :", err);
   }
 
+  // Savoir qui est ou AVANT de choisir un salon (nom du salon d'un lien #join=).
+  // Si Firebase ne repond pas (domaine bloque par un reseau d'entreprise,
+  // regles...), on n'attend pas indefiniment devant un hall vide.
+  if (!initialLoadDone) {
+    const users = await Promise.race([
+      db.ref("users").once("value").then((snap) => snap.val() || {}),
+      new Promise((resolve) => setTimeout(() => resolve(null), FIREBASE_READ_TIMEOUT_MS)),
+    ]).catch((err) => {
+      console.error("[HiSam] Lecture de /users refusee :", err);
+      return null;
+    });
+    if (users === null) {
+      console.warn("[HiSam] Firebase ne repond pas : entree sans la liste des autres");
+      setWarning(netWarningEl, "Annuaire injoignable : les autres risquent de ne pas apparaitre");
+    } else if (!initialLoadDone) {
+      allUsers = users;
+    }
+  }
+
+  updateRoomUi();
+  const room = roomFromHash() || loadLastRoom();
+  if (room) joinRoom(room);
+  console.log("[HiSam] Dans le hall des salons");
+}
+
+// ---- Salons ----
+function mapEnabled() {
+  return localStorage.getItem(MAP_KEY) === "on";
+}
+
+// #join=<id> : lien vers un salon (widget.html, partage). Le nom vient d'un membre.
+function roomFromHash() {
+  const m = location.hash.match(/^#join=(.+)$/);
+  if (!m) return null;
+  history.replaceState(null, "", location.pathname + location.search);
+  const id = decodeURIComponent(m[1]);
+  if (id === GENERAL_ROOM.id) return GENERAL_ROOM;
+  if (id === OFFICE_ROOM.id) return OFFICE_ROOM;
+  const member = Object.values(allUsers).find((u) => roomIdOf(u) === id);
+  if (!member) {
+    setWarning(netWarningEl, "Ce salon est vide, il n'existe plus");
+    setTimeout(() => { if (netWarningEl.textContent.startsWith("Ce salon est vide")) setWarning(netWarningEl, null); }, 5000);
+    return null;
+  }
+  return { id, name: member.room.name || "Salon" };
+}
+
+function saveLastRoom() {
+  if (myRoom) localStorage.setItem(ROOM_KEY, JSON.stringify({ ...myRoom, ts: Date.now() }));
+}
+
+function loadLastRoom() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(ROOM_KEY) || "null");
+    if (!saved || !saved.id || Date.now() - saved.ts > LAST_POS_TTL_MS) return null;
+    return { id: saved.id, name: saved.name || "Salon" };
+  } catch {
+    return null;
+  }
+}
+
+// Les salons a afficher : General toujours, le Bureau si la carte est activee
+// (ou si quelqu'un y est), et tout salon qui a au moins un membre.
+function listRooms() {
+  const rooms = new Map();
+  const add = (room) => {
+    if (!rooms.has(room.id)) rooms.set(room.id, { id: room.id, name: room.name || "Salon", members: [] });
+    return rooms.get(room.id);
+  };
+  add(GENERAL_ROOM);
+  if (mapEnabled()) add(OFFICE_ROOM);
+  if (myRoom) add(myRoom).members.push(myId);
+  const lobby = [];
+  Object.keys(allUsers).forEach((id) => {
+    if (id === myId) return;
+    const u = allUsers[id];
+    if (!isOnline(u)) return;
+    const rid = roomIdOf(u);
+    if (!rid) { lobby.push(id); return; }
+    const fixed = rid === GENERAL_ROOM.id ? GENERAL_ROOM : rid === OFFICE_ROOM.id ? OFFICE_ROOM : u.room;
+    add(fixed).members.push(id);
+  });
+  const rank = (r) => (myRoom && r.id === myRoom.id ? 0 : r.id === GENERAL_ROOM.id ? 1 : r.id === OFFICE_ROOM.id ? 2 : 3);
+  const list = [...rooms.values()].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
+  return { rooms: list, lobby };
+}
+
+function nameOf(id) {
+  return id === myId ? myName : allUsers[id]?.name || "?";
+}
+
+// Une pastille de personne : point de statut, prenom, micro coupe, wizz
+function personChip(id, { showMic } = {}) {
+  const me = id === myId;
+  const u = me ? { status: myStatus, muted: isMuted, busy: isBusy } : allUsers[id] || {};
+  const busy = isBusyUser(u);
+  const chip = document.createElement("span");
+  chip.className = "room-member" + (busy ? " busy" : "") + (me ? " me" : "");
+  chip.title = busy ? "Occupe(e)" : "Disponible";
+  const dot = document.createElement("span");
+  dot.className = "status-dot";
+  chip.appendChild(dot);
+  const label = document.createElement("span");
+  label.textContent = me ? `${myName} (toi)` : nameOf(id);
+  chip.appendChild(label);
+  if (showMic && u.muted === true) {
+    const mic = document.createElement("span");
+    mic.className = "presence-mic";
+    mic.innerHTML = MIC_OFF_ICON;
+    chip.appendChild(mic);
+  }
+  if (!me) {
+    const wizz = document.createElement("button");
+    wizz.type = "button";
+    wizz.className = "chip-wizz";
+    wizz.textContent = "Wizz";
+    wizz.title = busy && u.busy !== true ? "Occupe(e) : pas de wizz" : "Lui envoyer un wizz";
+    wizz.disabled = !canWizz(id);
+    wizz.addEventListener("click", (e) => { e.stopPropagation(); sendWizz(id); });
+    chip.appendChild(wizz);
+  }
+  return chip;
+}
+
+function renderRooms() {
+  if (!appEntered) return;
+  const { rooms, lobby } = listRooms();
+  roomsList.innerHTML = "";
+  rooms.forEach((room) => {
+    const mine = !!myRoom && myRoom.id === room.id;
+    const card = document.createElement("div");
+    card.className = "room-card" + (mine ? " room-active" : "") + (room.id === OFFICE_ROOM.id ? " room-office" : "");
+
+    const head = document.createElement("div");
+    head.className = "room-card-header";
+    const info = document.createElement("div");
+    info.className = "room-info";
+    const name = document.createElement("span");
+    name.className = "room-name";
+    name.textContent = room.name;
+    const count = document.createElement("span");
+    count.className = "room-count";
+    const n = room.members.length;
+    count.textContent = room.id === OFFICE_ROOM.id && !n ? "Carte 2D, voix de proximite"
+      : n === 0 ? "Vide" : `${n} personne${n > 1 ? "s" : ""}`;
+    info.appendChild(name);
+    info.appendChild(count);
+    head.appendChild(info);
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    const busyNames = room.members.filter((id) => id !== myId && isBusyUser(allUsers[id])).map(nameOf);
+    const armed = joinConfirm && joinConfirm.id === room.id && Date.now() < joinConfirm.until;
+    if (mine) {
+      btn.className = "btn-room-action btn-leave";
+      btn.textContent = "Quitter";
+      btn.addEventListener("click", () => leaveRoom());
+    } else {
+      btn.className = "btn-room-action btn-join" + (armed ? " btn-confirm" : "");
+      btn.textContent = armed
+        ? `${busyNames.join(", ")} ${busyNames.length > 1 ? "sont occupes" : "est occupe(e)"}, rejoindre quand meme ?`
+        : "Rejoindre";
+      btn.addEventListener("click", () => {
+        if (busyNames.length && !armed) {
+          joinConfirm = { id: room.id, until: Date.now() + 4000 };
+          setTimeout(renderRooms, 4050);
+          renderRooms();
+          return;
+        }
+        joinConfirm = null;
+        joinRoom(room);
+      });
+    }
+    head.appendChild(btn);
+    card.appendChild(head);
+
+    if (n) {
+      const members = document.createElement("div");
+      members.className = "room-members";
+      room.members.forEach((id) => members.appendChild(personChip(id, { showMic: true })));
+      card.appendChild(members);
+    }
+    roomsList.appendChild(card);
+  });
+
+  lobbyList.innerHTML = "";
+  if (lobby.length) {
+    const title = document.createElement("span");
+    title.className = "lobby-title";
+    title.textContent = "En ligne, hors salon :";
+    lobbyList.appendChild(title);
+    lobby.forEach((id) => lobbyList.appendChild(personChip(id)));
+  }
+}
+
+newRoomForm.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const name = newRoomInput.value.trim().slice(0, 30);
+  if (!name) { newRoomInput.focus(); return; }
+  newRoomInput.value = "";
+  // Identifiant genere localement (cle push), rien n'est ecrit hors de mon noeud
+  joinRoom({ id: db.ref("users").push().key, name });
+});
+
+// Un salon a la fois : rejoindre quitte le precedent.
+async function joinRoom(room) {
+  if (!appEntered || !room) return;
+  if (myRoom && myRoom.id === room.id) return;
+  if (myRoom) leaveRoom({ quiet: true });
+  myRoom = { id: room.id, name: room.name || "Salon" };
+  if (!localStream) {
+    try { localStream = silentStream(); } catch (err) { console.warn("[HiSam] Piste muette indisponible :", err); }
+  }
+  db.ref(`users/${myId}/room`).set(myRoom);
+  saveLastRoom();
+  console.log(`[HiSam] Dans le salon ${myRoom.name}`);
+  updateRoomUi();
+  if (myRoom.id === OFFICE_ROOM.id) await enterMap();
+  syncConnections();
+}
+
+function leaveRoom({ quiet } = {}) {
+  if (!myRoom) return;
+  if (myRoom.id === OFFICE_ROOM.id) leaveMap();
+  console.log(`[HiSam] Sortie du salon ${myRoom.name}`);
+  myRoom = null;
+  db.ref(`users/${myId}/room`).remove();
+  localStorage.removeItem(ROOM_KEY);
+  closeAllCalls();
+  if (!isMuted) muteMic();
+  if (!quiet) {
+    playSound("leave");
+    updateRoomUi();
+  }
+}
+
+// Ferme toutes les connexions audio/video et relache les partages
+function closeAllCalls() {
+  Object.keys(connections).forEach((id) => {
+    connections[id].close();
+    removeAudio(id);
+  });
+  connections = {};
+  Object.values(pendingIncoming).forEach((p) => { clearTimeout(p.timer); p.call.close(); });
+  pendingIncoming = {};
+  lastInGroupAt = {};
+  stopAllShares();
+  removeAllRemoteVideos();
+  audioContainer.innerHTML = "";
+}
+
+// Hall ou carte, boutons de la barre du bas
+function updateRoomUi() {
+  const showMap = !!myRoom && myRoom.id === OFFICE_ROOM.id;
+  worldWrap.style.display = showMap ? "" : "none";
+  roomsView.style.display = showMap ? "none" : "";
+  leaveRoomBtn.style.display = myRoom ? "" : "none";
+  leaveRoomBtn.textContent = showMap ? "Quitter le bureau" : "Quitter le salon";
+  [globalMuteBtn, cameraBtn, screenBtn].forEach((b) => { b.disabled = !myRoom; });
+  mapToggleBtn.textContent = mapEnabled() ? "Carte du bureau (beta) : activee" : "Carte du bureau (beta) : desactivee";
+  mapToggleBtn.classList.toggle("active", mapEnabled());
+  renderRooms();
+  renderPresenceBar();
+  updateGroupStatus();
+  updateBusyUi();
+}
+
+mapToggleBtn.addEventListener("click", () => {
+  moreMenu.classList.remove("open");
+  localStorage.setItem(MAP_KEY, mapEnabled() ? "off" : "on");
+  if (!mapEnabled() && inOffice) leaveRoom();
+  updateRoomUi();
+});
+
+// ---- Statut Disponible / Occupe ----
+function setStatus(status) {
+  myStatus = status === "busy" ? "busy" : "available";
+  localStorage.setItem(STATUS_KEY, myStatus);
+  if (appStarted) db.ref(`users/${myId}/status`).set(myStatus);
+  updateStatusBtn();
+  renderRooms();
+  renderPresenceBar();
+}
+
+function updateStatusBtn() {
+  const busy = myStatus === "busy";
+  statusBtn.classList.toggle("busy", busy);
+  statusBtn.querySelector(".status-label").textContent = busy ? "Occupe" : "Disponible";
+  statusBtn.title = busy
+    ? "Occupe : ni son ni notification, pas de wizz. Clique pour redevenir disponible"
+    : "Disponible. Clique pour passer en occupe";
+}
+
+statusBtn.addEventListener("click", () => {
+  const next = myStatus === "busy" ? "available" : "busy";
+  if (next === "available" && isBusy) {
+    statusBeforePod = null;
+    leaveBusy({ step: true });
+  }
+  setStatus(next);
+});
+
+// ---- Salon Bureau : la carte 2D ----
+async function enterMap() {
   if (!world) {
     world = World.create({
       canvas: worldCanvas,
@@ -844,70 +1194,54 @@ async function enterOffice() {
       await world.load();
     } catch (err) {
       console.error("[HiSam] Chargement du monde impossible :", err);
-      showOverlay(`<p><strong>Impossible de charger le bureau.</strong></p><p>${escapeHtml(err.message)}</p>`);
+      world = null;
+      leaveRoom();
+      setWarning(netWarningEl, "Impossible de charger le bureau : " + err.message);
       return;
     }
   }
+  // Parti ailleurs pendant le chargement
+  if (!myRoom || myRoom.id !== OFFICE_ROOM.id || inOffice) return;
 
-  // Savoir qui est deja ou AVANT de choisir une case d'apparition. Si Firebase
-  // ne repond pas (domaine bloque par un reseau d'entreprise, regles...), on
-  // n'attend pas indefiniment devant un bureau vide : on entre sans les autres.
-  const users = await Promise.race([
-    db.ref("users").once("value").then((s) => s.val() || {}),
-    new Promise((resolve) => setTimeout(() => resolve(null), FIREBASE_READ_TIMEOUT_MS)),
-  ]).catch((err) => {
-    console.error("[HiSam] Lecture de /users refusee :", err);
-    return null;
-  });
-  if (users === null) {
-    console.warn("[HiSam] Firebase ne repond pas : entree sans les positions des autres");
-    setWarning(netWarningEl, "Annuaire injoignable : les autres risquent de ne pas apparaitre");
-  }
-  feedPositionsToWorld(users || {});
-
+  feedPositionsToWorld(allUsers);
   inOffice = true;
   const pos = world.spawn(loadLastPosition());
   publishPosition(pos, true);
   world.start();
   restoreBusy();
-  updateGroupStatus();
-  renderPresenceBar();
-  updateBusyUi();
-  syncConnections();
+  updateRoomUi();
   console.log(`[HiSam] Dans le bureau en (${pos.x}, ${pos.y})`);
 }
 
-// Sortir du bureau sans toucher a la presence ni au peer : monde arrete,
-// appels fermes, micro et partages relaches.
-function tearDownSession() {
+// Sortir de la carte : monde arrete, position et pod effaces
+function leaveMap() {
+  if (!inOffice) return;
+  if (isBusy) leaveBusy();
   inOffice = false;
-  officeEntered = false;
-  isBusy = false;
-  busyPod = null;
+  followingId = null;
+  pendingPodEnter = null;
+  saveLastPosition();
+  clearTimeout(posWriteTimer);
+  posWriteTimer = null;
   if (world) world.stop();
-
-  Object.values(connections).forEach((call) => call.close());
-  connections = {};
-  Object.values(pendingIncoming).forEach((p) => { clearTimeout(p.timer); p.call.close(); });
-  pendingIncoming = {};
-  lastInGroupAt = {};
-
-  stopAllAnalysers();
-  stopMic();
-  stopAllShares();
-  removeAllRemoteVideos();
-  audioContainer.innerHTML = "";
+  db.ref(`users/${myId}`).update({ pos: null, busy: null, busyPod: null });
 }
 
-function leaveOffice() {
-  tearDownSession();
-  db.ref(`users/${myId}`).remove();
-  // hisam-last-pos est garde : "Entrer" a nouveau dans les 2 min ramene au meme endroit
-
-  // `peer` est conserve : se re-enregistrer sur le broker public a chaque
-  // sortie/entree declencherait sa limite de debit.
-  mainScreen.style.display = "none";
-  loginScreen.style.display = "flex";
+// L'appli est reprise dans un autre onglet : on lache tout, sans toucher a
+// Firebase (le noeud part avec teardownPresence).
+function tearDownSession() {
+  saveLastRoom(); // l'onglet qui reprend retourne dans ce salon
+  if (inOffice) {
+    inOffice = false;
+    isBusy = false;
+    busyPod = null;
+    if (world) world.stop();
+  }
+  myRoom = null;
+  appEntered = false;
+  closeAllCalls();
+  stopAllAnalysers();
+  stopMic();
 }
 
 // ---- Occupe : dans un pod ----
@@ -922,7 +1256,7 @@ function podOccupantId(index) {
   return Object.keys(allUsers).find((id) => {
     if (id === myId) return false;
     const u = allUsers[id];
-    if (!isAtOffice(u)) return false;
+    if (roomIdOf(u) !== OFFICE_ROOM.id || !u.pos) return false;
     return u.busyPod === index || (u.pos.x === pod.x && u.pos.y === pod.y);
   }) || null;
 }
@@ -946,6 +1280,8 @@ function enterBusy(preferred) {
   busyPod = index;
   world.teleportTo(pod.x, pod.y, 1); // face a la vitre
   if (!isMuted) muteMic();
+  statusBeforePod = myStatus;
+  setStatus("busy");
   db.ref(`users/${myId}`).update({ busy: true, busyPod: index });
   localStorage.setItem(BUSY_KEY, JSON.stringify({ pod: index, ts: Date.now() }));
   console.log(`[HiSam] Occupe dans le pod ${index + 1}`);
@@ -962,6 +1298,8 @@ function leaveBusy({ step } = {}) {
   busyPod = null;
   db.ref(`users/${myId}`).update({ busy: null, busyPod: null });
   localStorage.removeItem(BUSY_KEY);
+  if (statusBeforePod) setStatus(statusBeforePod);
+  statusBeforePod = null;
   if (step && world && pod) {
     const front = world.podFront(pod);
     if (world.podOccupant({ x: front.x, y: front.y }) === null) world.teleportTo(front.x, front.y, 1);
@@ -990,6 +1328,8 @@ function restoreBusy() {
   busyPod = saved.pod;
   world.teleportTo(pod.x, pod.y, 1);
   if (!isMuted) muteMic();
+  statusBeforePod = "available";
+  setStatus("busy");
   db.ref(`users/${myId}`).update({ busy: true, busyPod: busyPod });
   console.log(`[HiSam] De retour dans le pod ${busyPod + 1}, toujours occupe`);
 }
@@ -1006,6 +1346,7 @@ function resolveBusyConflict() {
 
 function updateBusyUi() {
   if (!busyBtn) return;
+  busyBtn.style.display = inOffice ? "" : "none";
   busyBtn.classList.toggle("active", isBusy);
   busyBtn.textContent = isBusy ? "Redevenir disponible" : "Occupe (s'isoler dans un pod)";
   busyBtn.title = isBusy ? "Sortir du pod" : "Se teleporter dans un pod libre, micro coupe";
@@ -1081,12 +1422,15 @@ const wizzSentAt = {};   // id -> dernier envoi
 const wizzSeen = {};     // id -> dernier ts observe chez les autres
 let lastWizzTs = null;   // dernier wizz recu
 
+// Occupe = pas de wizz ; sauf dans un pod, ou "Secouer" reste possible en cas de probleme
 function canWizz(id) {
+  const u = allUsers[id];
+  if (u && u.status === "busy" && u.busy !== true) return false;
   return Date.now() - (wizzSentAt[id] || 0) >= WIZZ_COOLDOWN_MS;
 }
 
 function sendWizz(id) {
-  if (!inOffice || id === myId || !allUsers[id]) return;
+  if (!appEntered || id === myId || !allUsers[id]) return;
   if (!canWizz(id)) return;
   wizzSentAt[id] = Date.now();
   db.ref(`users/${id}/wizz`).set({ from: myId, name: myName, ts: firebase.database.ServerValue.TIMESTAMP });
@@ -1094,11 +1438,16 @@ function sendWizz(id) {
   if (world) world.shake(id, 900);
   console.log(`[HiSam] Wizz envoye a ${allUsers[id].name}`);
   renderPresenceBar();
-  setTimeout(renderPresenceBar, WIZZ_COOLDOWN_MS + 50);
+  renderRooms();
+  setTimeout(() => { renderPresenceBar(); renderRooms(); }, WIZZ_COOLDOWN_MS + 50);
 }
 
 function receiveWizz(wizz) {
   const name = (wizz && wizz.name) || "Quelqu'un";
+  if (myStatus === "busy" && !isBusy) {
+    console.log(`[HiSam] Wizz de ${name} ignore : occupe`);
+    return;
+  }
   console.log(`[HiSam] Wizz recu de ${name}`);
   shakeScreen(true);
   notify(`${name} te wizz !`, "wizz");
@@ -1178,7 +1527,25 @@ function onGroupChange(members, prev) {
 }
 
 function updateGroupStatus() {
-  if (!world || !inOffice) return;
+  if (!appEntered) return;
+  if (!myRoom) {
+    groupStatusEl.textContent = "Dans le hall : rejoins un salon ou cree le tien";
+    groupStatusEl.classList.remove("active");
+    return;
+  }
+  if (myRoom.id !== OFFICE_ROOM.id) {
+    const others = roomPeers().map(nameOf);
+    groupStatusEl.textContent = others.length
+      ? `${myRoom.name} : avec ${others.join(", ")}` + (isMuted ? " (micro coupe, clique sur le micro pour parler)" : "")
+      : `${myRoom.name} : seul(e) pour l'instant`;
+    groupStatusEl.classList.toggle("active", others.length > 0);
+    return;
+  }
+  if (!world || !inOffice) {
+    groupStatusEl.textContent = "Chargement du bureau...";
+    groupStatusEl.classList.remove("active");
+    return;
+  }
   if (isBusy) {
     groupStatusEl.textContent = "Tu es dans un pod, occupe(e). On peut te secouer en cas de probleme.";
     groupStatusEl.classList.add("active");
@@ -1216,8 +1583,8 @@ function setupPeer() {
     peerReconnectTimer = null;
     setWarning(peerWarningEl, null);
     if (peerIdRetries) { peerBlocked = false; hideOverlay(); } // le fantome a lache l'identifiant
-    if (!officeEntered && !peerBlocked) enterOffice();
-    else if (inOffice) syncConnections();
+    if (!appEntered && !peerBlocked) enterApp();
+    else if (myRoom) syncConnections();
   });
 
   peer.on("call", (call) => {
@@ -1237,7 +1604,7 @@ function setupPeer() {
   peer.on("error", (err) => {
     console.warn("[HiSam] PeerJS error:", err.type, err.message);
     if (err.type === "unavailable-id") {
-      if (!officeEntered) handlePeerIdTaken();
+      if (!appEntered) handlePeerIdTaken();
       else console.log("[HiSam] Identifiant PeerJS deja pris (autre onglet ?)");
     } else if (err.type === "network") {
       schedulePeerReconnect();
@@ -1292,7 +1659,7 @@ async function handlePeerIdTaken() {
     const delay = PEER_ID_RETRY_MS[peerIdRetries++];
     console.log(`[HiSam] Identifiant PeerJS pris sans onglet vivant : nouvel essai dans ${delay / 1000}s`);
     showOverlay("<p><strong>Connexion en cours...</strong></p><p>Une ancienne session HiSam est encore enregistree, quelques secondes de patience.</p>");
-    setTimeout(() => { if (!officeEntered) setupPeer(); }, delay);
+    setTimeout(() => { if (!appEntered) setupPeer(); }, delay);
     return;
   }
   console.warn("[HiSam] Identifiant PeerJS toujours pris : on en prend un neuf");
@@ -1301,12 +1668,12 @@ async function handlePeerIdTaken() {
   setupPeer();
   // Dernier filet : si meme le nouvel identifiant ne s'ouvre pas, on entre sans voix.
   setTimeout(() => {
-    if (officeEntered) return;
+    if (appEntered) return;
     console.warn("[HiSam] PeerJS toujours muet apres changement d'identifiant : entree sans voix");
     peerBlocked = false;
     hideOverlay();
     setWarning(peerWarningEl, "Serveur vocal injoignable : pas de voix pour l'instant");
-    enterOffice();
+    enterApp();
   }, PEER_OPEN_TIMEOUT_MS);
 }
 
@@ -1336,7 +1703,7 @@ function takeOverTab() {
 
 // Un autre onglet vient de reprendre HiSam : on se retire proprement.
 function onTakenOver() {
-  if (!officeEntered && !inOffice) return; // rien a ceder
+  if (!appEntered && !inOffice) return; // rien a ceder
   console.log("[HiSam] HiSam a ete repris dans un autre onglet");
   tearDownSession();
   teardownPresence();
@@ -1638,16 +2005,33 @@ function stopAllAnalysers() {
 }
 
 // ---- Connection management ----
-// A qui dois-je parler ? Aux membres de mon groupe de conversation (composante
-// connexe des gens assez proches, dans la meme zone), calcule par world.js.
+// A qui dois-je parler ? Aux gens de mon salon. Dans le salon Bureau, seulement
+// aux membres de mon groupe de conversation (composante connexe des gens assez
+// proches, dans la meme zone), calcule par world.js.
+function sameRoom(id) {
+  return !!myRoom && id !== myId && roomIdOf(allUsers[id]) === myRoom.id;
+}
+
+function roomPeers() {
+  if (!myRoom) return [];
+  if (myRoom.id === OFFICE_ROOM.id) {
+    return inOffice && world ? world.getGroupMembers().filter(sameRoom) : [];
+  }
+  return Object.keys(allUsers).filter(sameRoom);
+}
+
 function shouldTalkTo(id) {
-  return inOffice && !!world && !!allUsers[id]?.online && world.isInMyGroup(id);
+  if (!sameRoom(id)) return false;
+  if (myRoom.id !== OFFICE_ROOM.id) return true;
+  return inOffice && !!world && world.isInMyGroup(id);
 }
 
 // Appel entrant : on est tolerant d'une bande d'hysteresis, car la vue de
 // l'appelant peut etre en avance de 100-300 ms sur la mienne.
 function acceptsCallFrom(id) {
-  if (!inOffice || !world || !allUsers[id]?.online) return false;
+  if (!sameRoom(id)) return false;
+  if (myRoom.id !== OFFICE_ROOM.id) return true;
+  if (!inOffice || !world) return false;
   return world.isInMyGroup(id) || world.distanceTo(id) <= World.CONFIG.LEAVE_TILES;
 }
 
@@ -1669,7 +2053,7 @@ function holdIncoming(call, kind) {
   const timer = setTimeout(() => {
     if (pendingIncoming[key]?.call === call) {
       delete pendingIncoming[key];
-      console.log(`[HiSam] appel ${kind || "audio"} de ${call.peer} refuse : pas a portee`);
+      console.log(`[HiSam] appel ${kind || "audio"} de ${call.peer} refuse : pas dans mon salon ou pas a portee`);
       call.close();
     }
   }, PENDING_CALL_MS);
@@ -1687,14 +2071,13 @@ function flushPendingIncoming() {
 }
 
 function syncConnections() {
-  if (!inOffice || !world || !peer) return;
+  if (!myRoom || !peer) return;
   // Inutile d'appeler pendant une coupure du serveur de signalisation :
   // peer.call() renvoie undefined et ne fait qu'empiler des erreurs.
   if (peer.disconnected) return;
 
   if (localStream) {
-    world.getGroupMembers().forEach((id) => {
-      if (!allUsers[id]?.online) return;
+    roomPeers().forEach((id) => {
       if (connections[id] && connections[id].open) return;
       const call = peer.call(id, localStream, { metadata: { kind: "audio" } });
       if (call) {
@@ -1714,7 +2097,7 @@ function syncConnections() {
 function startResyncLoop() {
   if (resyncTimer) return;
   resyncTimer = setInterval(() => {
-    if (!inOffice) return;
+    if (!myRoom) return;
     syncConnections();
     cleanupConnections();
   }, RESYNC_INTERVAL_MS);
@@ -1747,7 +2130,7 @@ async function toggleShare(kind) {
     stopShare(kind);
     return;
   }
-  if (!peer || !inOffice) return;
+  if (!peer || !myRoom) return;
 
   let stream;
   try {
@@ -1806,12 +2189,12 @@ function updateShareBtns() {
 
 // Appelle chaque membre de ma conversation, pour chaque flux que j'envoie
 function syncVideoCalls() {
-  if (!peer || peer.disconnected || !world || !inOffice) return;
+  if (!peer || peer.disconnected || !myRoom) return;
   VIDEO_KINDS.forEach((kind) => {
     const stream = videoStreams[kind];
     if (!stream) return;
 
-    world.getGroupMembers().forEach((id) => {
+    roomPeers().forEach((id) => {
       if (!shouldTalkTo(id)) return;
       if (videoCalls[kind][id]) return; // deja appele
 
@@ -1963,7 +2346,9 @@ function updateVideoArea() {
 }
 
 // ---- Notifications ----
+// Occupe : ni son ni notification (le wizz d'un pod passe, voir receiveWizz)
 function notify(message, type) {
+  if (myStatus === "busy" && type !== "wizz") return;
   playSound(type);
 
   if (document.hidden) startFaviconBlink();
@@ -1974,6 +2359,7 @@ function notify(message, type) {
 }
 
 function playSound(type) {
+  if (myStatus === "busy" && type !== "wizz") return;
   try {
     // Le contexte partage, jamais un nouveau : WebKit plafonne a quatre
     // AudioContext par page, et le cinquieme leve. Passe ce seuil, plus aucun
@@ -2145,7 +2531,7 @@ async function debugTick() {
     ` niveau=${localAnalyser ? getAudioLevel(localAnalyser).toFixed(2) : "-"}`
   );
   const ids = Object.keys(connections);
-  lines.push(`peer=${peer ? (peer.open ? "ouvert" : peer.disconnected ? "deconnecte" : "...") : "absent"} connexions=${ids.length} groupe=${world ? world.getGroupMembers().length : 0}`);
+  lines.push(`peer=${peer ? (peer.open ? "ouvert" : peer.disconnected ? "deconnecte" : "...") : "absent"} connexions=${ids.length} salon=${myRoom ? myRoom.name : "-"} pairs=${roomPeers().length}`);
   for (const id of ids) {
     const call = connections[id];
     const pc = call.peerConnection;
@@ -2192,12 +2578,14 @@ window.addEventListener("storage", (e) => {
   myAvatar = currentAvatar();
   db.ref(`users/${myId}/avatar`).set(myAvatar);
   renderPresenceBar();
+  renderRooms();
 });
 
 // ---- Cleanup on close ----
 window.addEventListener("beforeunload", () => {
-  // Position memorisee pour reapparaitre au meme endroit apres un refresh
+  // Salon et position memorises pour y revenir apres un refresh
   saveLastPosition();
+  saveLastRoom();
 
   Object.values(connections).forEach((call) => call.close());
   releaseMicStreams();

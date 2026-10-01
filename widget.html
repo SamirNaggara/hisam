@@ -59,6 +59,12 @@
       box-shadow: 0 0 0 3px rgba(13,148,136,0.18);
       animation: pulse 2s ease-in-out infinite;
     }
+    .dot.online {
+      background: #22c55e;
+    }
+    .dot.busy {
+      background: #ef4444;
+    }
     @keyframes pulse {
       0%,100% { box-shadow: 0 0 0 3px rgba(13,148,136,0.18); }
       50% { box-shadow: 0 0 0 6px rgba(13,148,136,0.06); }
@@ -164,7 +170,7 @@
 
         wName.textContent = targetName;
 
-        if (!userEntry || !userEntry[1].online || !userEntry[1].pos) {
+        if (!userEntry || !userEntry[1].online) {
           // Offline
           widget.classList.remove("active");
           dot.className = "dot";
@@ -174,12 +180,15 @@
           return;
         }
 
-        // Au bureau : le lien ouvre le bureau, on ira le voir a pied
-        widget.classList.add("active");
-        dot.className = "dot in-room";
+        // En ligne : statut, et son salon (le lien le rejoint directement)
+        const u = userEntry[1];
+        const busy = u.status === "busy" || u.busy === true;
+        const room = u.room && u.room.id ? u.room : null;
+        widget.classList.toggle("active", !!room);
+        dot.className = "dot " + (busy ? "busy" : room ? "in-room" : "online");
+        wStatus.textContent = (busy ? "Occupe(e)" : "Disponible") + (room ? ` · dans ${room.name || "un salon"}` : "");
+        widget.href = room ? `${baseUrl}#join=${encodeURIComponent(room.id)}` : baseUrl;
         arrow.style.display = "block";
-        wStatus.textContent = "Au bureau";
-        widget.href = baseUrl;
       }
 
       db.ref("users").on("value", (snap) => {
