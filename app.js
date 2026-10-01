@@ -74,7 +74,7 @@ let micProcessing = null; // chaine de nettoyage { stream, destroy }
 let isMuted = true;       // on arrive micro coupe ; le flux envoye est alors silentStream()
 let silentAudioStream = null; // piste muette envoyee aux pairs tant que le micro est coupe
 let connections = {}; // peerId → MediaConnection
-const APP_VERSION = "salons-4";
+const APP_VERSION = "salons-5";
 const PEER_MAX_RECONNECT = 8;
 const RESYNC_INTERVAL_MS = 5000;
 let resyncTimer = null;
@@ -402,8 +402,8 @@ function listenToUsers() {
         const wasIn = isOnline(knownUsers[id]);
         const isIn = isOnline(user);
         if (!wasIn && isIn) {
+          // Pas de notification ici : seulement quand quelqu'un entre dans mon salon
           writeLog("connect", user.name);
-          if (id !== myId) notify(`${user.name} est en ligne`, "online");
         } else if (wasIn && !isIn) {
           writeLog("disconnect", knownUsers[id].name);
         }
