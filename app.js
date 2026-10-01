@@ -74,7 +74,7 @@ let micProcessing = null; // chaine de nettoyage { stream, destroy }
 let isMuted = true;       // on arrive micro coupe ; le flux envoye est alors silentStream()
 let silentAudioStream = null; // piste muette envoyee aux pairs tant que le micro est coupe
 let connections = {}; // peerId → MediaConnection
-const APP_VERSION = "salons-2";
+const APP_VERSION = "salons-3";
 const PEER_MAX_RECONNECT = 8;
 const RESYNC_INTERVAL_MS = 5000;
 let resyncTimer = null;
@@ -97,7 +97,8 @@ let myRoom = null;           // { id, name } du salon ou je suis, null = dans le
 let myStatus = localStorage.getItem(STATUS_KEY) === "busy" ? "busy" : "available";
 let statusBeforePod = null;  // statut a remettre en sortant d'un pod
 let joinConfirm = null;      // { id, until } : salon avec quelqu'un d'occupe, second clic attendu
-let deleteConfirm = null;    // { id, until } : suppression d'un salon, second clic attendu
+let deleteConfirm = null;    // { id } : suppression d'un salon, second clic attendu
+let roomMenuId = null;       // salon dont le menu "..." est ouvert
 let renamingId = null;       // salon dont le nom est en cours d'edition
 let roomsData = {};          // /rooms : id -> { name, createdAt, createdBy, createdById }
 
@@ -1011,15 +1012,68 @@ async function goToPerson(id) {
   if (inOffice) joinPerson(id);
 }
 
-function smallButton(text, title, onClick) {
-  const b = document.createElement("button");
-  b.type = "button";
-  b.className = "btn-room-small";
-  b.textContent = text;
-  b.title = title;
-  b.addEventListener("click", onClick);
-  return b;
+// Bouton "..." d'un salon : Renommer, Supprimer (seulement vide, en deux clics)
+function roomMenu(room, memberCount) {
+  const wrap = document.createElement("div");
+  wrap.className = "room-menu-wrap";
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "btn-room-more";
+  toggle.title = "Options du salon";
+  toggle.textContent = "\u22EF";
+  toggle.addEventListener("click", (e) => {
+    e.stopPropagation();
+    roomMenuId = roomMenuId === room.id ? null : room.id;
+    deleteConfirm = null;
+    renderRooms();
+  });
+  wrap.appendChild(toggle);
+  if (roomMenuId !== room.id) return wrap;
+
+  const menu = document.createElement("div");
+  menu.className = "room-menu";
+  menu.addEventListener("click", (e) => e.stopPropagation());
+  const item = (text, onClick) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "more-item";
+    b.textContent = text;
+    b.addEventListener("click", onClick);
+    menu.appendChild(b);
+    return b;
+  };
+  item("Renommer", () => {
+    roomMenuId = null;
+    renamingId = room.id;
+    renderRooms();
+  });
+  const armed = deleteConfirm && deleteConfirm.id === room.id;
+  const del = item(armed ? "Confirmer la suppression" : "Supprimer", () => {
+    if (!armed) {
+      deleteConfirm = { id: room.id };
+      renderRooms();
+      return;
+    }
+    roomMenuId = null;
+    deleteConfirm = null;
+    deleteRoom(room.id);
+  });
+  del.classList.add("danger");
+  if (memberCount > 0) {
+    del.disabled = true;
+    del.title = "Le salon doit etre vide pour etre supprime";
+  }
+  wrap.appendChild(menu);
+  return wrap;
 }
+
+// Clic ailleurs : le menu d'un salon se ferme
+document.addEventListener("click", () => {
+  if (roomMenuId === null) return;
+  roomMenuId = null;
+  deleteConfirm = null;
+  renderRooms();
+});
 
 function renderRooms() {
   if (!appEntered) return;
@@ -1074,28 +1128,7 @@ function renderRooms() {
 
     const actions = document.createElement("div");
     actions.className = "room-actions";
-    if (room.stored && renamingId !== room.id) {
-      actions.appendChild(smallButton("Renommer", "Changer le nom du salon", () => {
-        renamingId = room.id;
-        deleteConfirm = null;
-        renderRooms();
-      }));
-      if (n === 0) {
-        const armedDel = deleteConfirm && deleteConfirm.id === room.id && Date.now() < deleteConfirm.until;
-        const del = smallButton(armedDel ? "Supprimer ?" : "Supprimer", "Supprimer ce salon (vide)", () => {
-          if (!armedDel) {
-            deleteConfirm = { id: room.id, until: Date.now() + 4000 };
-            setTimeout(renderRooms, 4050);
-            renderRooms();
-            return;
-          }
-          deleteConfirm = null;
-          deleteRoom(room.id);
-        });
-        if (armedDel) del.classList.add("danger");
-        actions.appendChild(del);
-      }
-    }
+    if (room.stored && renamingId !== room.id) actions.appendChild(roomMenu(room, n));
 
     const btn = document.createElement("button");
     btn.type = "button";

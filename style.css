@@ -574,10 +574,10 @@ header h1 {
 }
 
 .room-card {
+  position: relative;
   background: var(--card);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
-  overflow: hidden;
   transition: box-shadow 0.2s;
   border-left: 3px solid transparent;
 }
@@ -655,28 +655,47 @@ header h1 {
   flex-shrink: 0;
 }
 
-.btn-room-small {
-  padding: 0.35rem 0.6rem;
-  border: 1.5px solid #e7e5e4;
+.room-menu-wrap {
+  position: relative;
+}
+
+.btn-room-more {
+  width: 30px;
+  height: 30px;
+  border: none;
   border-radius: 8px;
-  background: var(--card);
+  background: transparent;
   color: var(--text-soft);
-  font-size: 0.75rem;
-  font-weight: 500;
-  font-family: inherit;
+  font-size: 1.1rem;
+  line-height: 1;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background 0.2s;
 }
 
-.btn-room-small:hover {
-  border-color: var(--accent);
-  color: var(--accent);
+.btn-room-more:hover {
+  background: #f5f5f4;
+  color: var(--text);
 }
 
-.btn-room-small.danger {
-  border-color: var(--danger);
-  background: var(--danger-light);
+.room-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  min-width: 190px;
+  padding: 0.35rem;
+  background: var(--card);
+  border: 1px solid #e7e5e4;
+  border-radius: 10px;
+  box-shadow: var(--shadow-lg);
+  z-index: 30;
+}
+
+.room-menu .more-item.danger {
   color: var(--danger);
+}
+
+.room-menu .more-item.danger:hover:not(:disabled) {
+  background: var(--danger-light);
 }
 
 .room-rename {
