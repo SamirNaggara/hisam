@@ -709,8 +709,82 @@ header h1 {
   max-width: 260px;
 }
 
-.room-card.room-office {
-  background: linear-gradient(0deg, var(--card), #f0fdfa);
+/* ---- Encart du Bureau, bien en dessous des salons ---- */
+
+.office-widget {
+  margin-top: 3rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid #e7e5e4;
+}
+
+.office-widget h2 {
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.office-count {
+  margin-top: 0.25rem;
+  font-size: 0.85rem;
+  color: var(--text-soft);
+}
+
+.office-people {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.6rem;
+  font-size: 0.8rem;
+}
+
+.office-preview {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  margin-top: 0.85rem;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: #1c1917;
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  transition: box-shadow 0.2s;
+}
+
+.office-canvas {
+  display: block;
+  height: 320px;
+  max-width: 100%;
+  object-fit: contain;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  transition: transform 0.3s, filter 0.3s;
+}
+
+.office-enter {
+  align-self: stretch;
+  padding: 0.7rem 1rem;
+  background: var(--accent);
+  color: white;
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-align: center;
+  transition: background 0.2s;
+}
+
+.office-preview:hover {
+  box-shadow: var(--shadow-lg);
+}
+
+.office-preview:hover .office-canvas {
+  filter: brightness(1.1);
+}
+
+.office-preview:hover .office-enter {
+  background: #0f766e;
 }
 
 .room-member.goto {

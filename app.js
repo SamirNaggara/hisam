@@ -74,7 +74,7 @@ let micProcessing = null; // chaine de nettoyage { stream, destroy }
 let isMuted = true;       // on arrive micro coupe ; le flux envoye est alors silentStream()
 let silentAudioStream = null; // piste muette envoyee aux pairs tant que le micro est coupe
 let connections = {}; // peerId → MediaConnection
-const APP_VERSION = "salons-3";
+const APP_VERSION = "salons-4";
 const PEER_MAX_RECONNECT = 8;
 const RESYNC_INTERVAL_MS = 5000;
 let resyncTimer = null;
@@ -160,6 +160,10 @@ const worldWrap = document.getElementById("world-wrap");
 const roomsView = document.getElementById("rooms-view");
 const roomsList = document.getElementById("rooms-list");
 const lobbyList = document.getElementById("lobby-list");
+const officeCount = document.getElementById("office-count");
+const officePeople = document.getElementById("office-people");
+const officePreview = document.getElementById("office-preview");
+const officeCanvas = document.getElementById("office-canvas");
 const newRoomForm = document.getElementById("new-room-form");
 const newRoomInput = document.getElementById("new-room-input");
 const statusBtn = document.getElementById("status-btn");
@@ -937,8 +941,9 @@ function loadLastRoom() {
   }
 }
 
-// Les salons a afficher : mon salon, le Bureau, puis ceux de /rooms (et ceux
-// qu'un membre annonce sans qu'ils soient dans /rooms, pour ne cacher personne).
+// Les salons a afficher : mon salon, puis ceux de /rooms (et ceux qu'un membre
+// annonce sans qu'ils soient dans /rooms, pour ne cacher personne). Le Bureau
+// n'est pas dans la liste : il a son propre encart sous les salons.
 function listRooms() {
   const rooms = new Map();
   const add = (room) => {
@@ -947,7 +952,6 @@ function listRooms() {
     }
     return rooms.get(room.id);
   };
-  add(OFFICE_ROOM);
   Object.keys(roomsData).forEach((id) => add(roomById(id)));
   if (myRoom) add(roomById(myRoom.id, myRoom.name)).members.push(myId);
   const lobby = [];
@@ -959,9 +963,11 @@ function listRooms() {
     if (!rid) { lobby.push(id); return; }
     add(roomById(rid, u.room.name)).members.push(id);
   });
-  const rank = (r) => (myRoom && r.id === myRoom.id ? 0 : r.id === OFFICE_ROOM.id ? 1 : 2);
+  const office = rooms.get(OFFICE_ROOM.id) || { ...OFFICE_ROOM, members: [] };
+  rooms.delete(OFFICE_ROOM.id);
+  const rank = (r) => (myRoom && r.id === myRoom.id ? 0 : 1);
   const list = [...rooms.values()].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
-  return { rooms: list, lobby };
+  return { rooms: list, lobby, office };
 }
 
 function nameOf(id) {
@@ -1079,14 +1085,14 @@ function renderRooms() {
   if (!appEntered) return;
   // Un renommage en cours : on ne detruit pas le champ sous les doigts
   if (renamingId && roomsList.contains(document.activeElement)) return;
-  const { rooms, lobby } = listRooms();
+  const { rooms, lobby, office: officeRoom } = listRooms();
+  renderOfficeWidget(officeRoom.members);
   roomsList.innerHTML = "";
   rooms.forEach((room) => {
     const mine = !!myRoom && myRoom.id === room.id;
-    const office = room.id === OFFICE_ROOM.id;
     const n = room.members.length;
     const card = document.createElement("div");
-    card.className = "room-card" + (mine ? " room-active" : "") + (office ? " room-office" : "");
+    card.className = "room-card" + (mine ? " room-active" : "");
 
     const head = document.createElement("div");
     head.className = "room-card-header";
@@ -1120,9 +1126,7 @@ function renderRooms() {
     }
     const count = document.createElement("span");
     count.className = "room-count";
-    count.textContent = office
-      ? (n ? `${n} sur la carte · clique sur quelqu'un pour aller a cote` : "Carte 2D, voix de proximite · personne pour l'instant")
-      : n === 0 ? "Vide" : `${n} personne${n > 1 ? "s" : ""}`;
+    count.textContent = n === 0 ? "Vide" : `${n} personne${n > 1 ? "s" : ""}`;
     info.appendChild(count);
     head.appendChild(info);
 
@@ -1142,10 +1146,9 @@ function renderRooms() {
       btn.className = "btn-room-action btn-join" + (armed ? " btn-confirm" : "");
       btn.textContent = armed
         ? `${busyNames.join(", ")} ${busyNames.length > 1 ? "sont occupes" : "est occupe(e)"}, rejoindre quand meme ?`
-        : office ? "Entrer" : "Rejoindre";
+        : "Rejoindre";
       btn.addEventListener("click", () => {
-        // Dans le Bureau, la proximite protege deja les occupes (pods)
-        if (!office && busyNames.length && !armed) {
+        if (busyNames.length && !armed) {
           joinConfirm = { id: room.id, until: Date.now() + 4000 };
           setTimeout(renderRooms, 4050);
           renderRooms();
@@ -1162,7 +1165,7 @@ function renderRooms() {
     if (n) {
       const members = document.createElement("div");
       members.className = "room-members";
-      room.members.forEach((id) => members.appendChild(personChip(id, { showMic: true, onGo: office ? goToPerson : null })));
+      room.members.forEach((id) => members.appendChild(personChip(id, { showMic: true })));
       card.appendChild(members);
     }
     roomsList.appendChild(card);
@@ -1177,6 +1180,59 @@ function renderRooms() {
     lobby.forEach((id) => lobbyList.appendChild(personChip(id)));
   }
 }
+
+// ---- Encart du Bureau : apercu de la carte, un clic pour y entrer ----
+// Zone de la carte montree dans l'apercu (en cases) : le plateau, sans le vide autour
+const PREVIEW_CROP = { x: 2, y: 3, w: 38, h: 46 };
+let mapPreviewBase = null;     // canvas de la carte sans personne (World.renderMapPreview)
+let mapPreviewLoading = false;
+
+function renderOfficeWidget(members) {
+  const others = members.filter((id) => id !== myId);
+  const n = others.length;
+  officeCount.textContent = n === 0 ? "Personne dans le bureau pour l'instant"
+    : `${n} personne${n > 1 ? "s" : ""} dans le bureau`;
+  officePeople.innerHTML = "";
+  others.forEach((id) => officePeople.appendChild(personChip(id, { onGo: goToPerson })));
+  officePeople.style.display = n ? "" : "none";
+  drawOfficePreview(others);
+}
+
+function drawOfficePreview(ids) {
+  if (!mapPreviewBase) {
+    if (!mapPreviewLoading) {
+      mapPreviewLoading = true;
+      Promise.all([World.renderMapPreview(WORLD_MAP), World.loadCharacters()])
+        .then(([base]) => { mapPreviewBase = base; renderRooms(); })
+        .catch((err) => console.warn("[HiSam] Apercu de la carte indisponible :", err))
+        .finally(() => { mapPreviewLoading = false; });
+    }
+    return;
+  }
+  const T = World.CONFIG.TILE, c = PREVIEW_CROP;
+  officeCanvas.width = c.w * T;
+  officeCanvas.height = c.h * T;
+  const ctx = officeCanvas.getContext("2d");
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(mapPreviewBase, c.x * T, c.y * T, c.w * T, c.h * T, 0, 0, c.w * T, c.h * T);
+  ids.forEach((id) => {
+    const u = allUsers[id];
+    if (!u || !u.pos) return;
+    const variant = Number.isInteger(u.avatar) ? u.avatar : World.avatarFor(id);
+    const px = (u.pos.x - c.x) * T, py = (u.pos.y - c.y) * T;
+    // Un halo : a l'echelle de l'apercu, un personnage seul se voit a peine
+    ctx.beginPath();
+    ctx.arc(px + T / 2, py + T / 2, T * 1.1, 0, Math.PI * 2);
+    ctx.fillStyle = isBusyUser(u) ? "rgba(239, 68, 68, 0.45)" : "rgba(45, 212, 191, 0.5)";
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = isBusyUser(u) ? "#ef4444" : "#2dd4bf";
+    ctx.stroke();
+    World.drawCharacter(ctx, variant, px, py - 4);
+  });
+}
+
+officePreview.addEventListener("click", () => joinRoom(OFFICE_ROOM));
 
 newRoomForm.addEventListener("submit", (e) => {
   e.preventDefault();

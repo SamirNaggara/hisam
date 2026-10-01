@@ -16,7 +16,7 @@ Le bouton en haut à droite bascule ton statut. Occupé, tu ne reçois plus ni s
 
 ## Le Bureau (la carte)
 
-Toujours en tête de liste, « Bureau (carte) » montre qui s'y trouve. « Entrer » ouvre la carte ; **cliquer sur quelqu'un dans ce salon, depuis le hall, t'y emmène directement à côté de lui** (et tu le suis). Sur la carte, on parle seulement aux gens assez proches. Tout ce qui suit ne concerne que ce salon.
+Sous les salons, l'encart « Bureau virtuel » dit combien de personnes y sont et montre un aperçu de la carte, avec chacun à sa place. Un clic sur l'aperçu et on saute dans la carte, qui prend tout l'écran ; **cliquer sur le nom de quelqu'un dans l'encart t'emmène directement à côté de lui** (et tu le suis). Sur la carte, on parle seulement aux gens assez proches. Tout ce qui suit ne concerne que ce salon.
 
 ## Comment ça marche
 

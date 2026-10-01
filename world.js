@@ -1030,11 +1030,41 @@
     }
   }
 
+  // Apercu fixe de la carte (sol + objets, sans personne), pour le hall des
+  // salons. Charge les tuiles comme le ferait le monde ; un seul rendu.
+  let mapPreviewPromise = null;
+  function renderMapPreview(map) {
+    if (!mapPreviewPromise) {
+      const w = new WorldInstance({ canvas: document.createElement("canvas"), map });
+      mapPreviewPromise = w.load().then(() => {
+        const c = document.createElement("canvas");
+        c.width = w.floorCanvas.width;
+        c.height = w.floorCanvas.height;
+        const ctx = c.getContext("2d");
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(w.floorCanvas, 0, 0);
+        if (w.aboveCanvas) ctx.drawImage(w.aboveCanvas, 0, 0);
+        return c;
+      }).catch((err) => {
+        mapPreviewPromise = null;
+        throw err;
+      });
+    }
+    return mapPreviewPromise;
+  }
+
+  // Un personnage immobile, face a nous, sur un contexte quelconque (pixels de carte)
+  function drawCharacter(ctx, variant, dx, dy) {
+    drawSprite(ctx, variant, 0, 0, dx, dy);
+  }
+
   global.World = {
     CONFIG,
     DIRS,
     create: (opts) => new WorldInstance(opts),
     loadCharacters,
+    renderMapPreview,
+    drawCharacter,
     drawAvatarPreview,
     avatarFor,
     variantCount,
