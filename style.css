@@ -648,6 +648,60 @@ header h1 {
   opacity: 0.9;
 }
 
+.room-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.btn-room-small {
+  padding: 0.35rem 0.6rem;
+  border: 1.5px solid #e7e5e4;
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--text-soft);
+  font-size: 0.75rem;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-room-small:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.btn-room-small.danger {
+  border-color: var(--danger);
+  background: var(--danger-light);
+  color: var(--danger);
+}
+
+.room-rename {
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.95rem;
+  padding: 0.2rem 0.5rem;
+  border: 1.5px solid var(--accent);
+  border-radius: 6px;
+  outline: none;
+  max-width: 260px;
+}
+
+.room-card.room-office {
+  background: linear-gradient(0deg, var(--card), #f0fdfa);
+}
+
+.room-member.goto {
+  cursor: pointer;
+}
+
+.room-member.goto:hover {
+  background: var(--accent-light);
+}
+
 .room-members,
 .lobby-list {
   display: flex;
@@ -1089,6 +1143,10 @@ header h1 {
 
   .new-room-form input {
     width: 130px;
+  }
+
+  .room-card-header {
+    flex-wrap: wrap;
   }
 
   .status-btn .status-label {

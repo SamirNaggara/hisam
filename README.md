@@ -1,12 +1,12 @@
 # HiSam
 
-Des salons vocaux pour l'équipe, dans le navigateur. On voit les salons et qui est dedans, **un clic et on rejoint** ; on en crée un en lui donnant un nom, il disparaît quand le dernier part. Chacun affiche s'il est **disponible ou occupé**. En option, un petit bureau en pixel art façon Pokémon où la voix s'active quand on s'approche de quelqu'un. Projet personnel, sans framework, sans backend applicatif.
+Des salons vocaux pour l'équipe, dans le navigateur. On voit les salons et qui est dedans, **un clic et on rejoint**. Chacun affiche s'il est **disponible ou occupé**. Parmi les salons, un salon spécial : un petit bureau en pixel art façon Pokémon où la voix s'active quand on s'approche de quelqu'un. Projet personnel, sans framework, sans backend applicatif.
 
 Une page principale (les salons), un widget compact à intégrer ailleurs, et une page « qui est là » qui liste les présents par salon.
 
 ## Les salons
 
-On donne son prénom une fois, et on arrive dans le hall, **micro coupé**. Le salon « General » est toujours là ; les autres existent tant que quelqu'un est dedans (« Nouveau salon », un nom, Créer). On est dans un seul salon à la fois : en rejoindre un autre quitte le premier. Dans un salon, tout le monde s'entend. Recharger la page dans les deux minutes ramène dans le même salon, et un lien `index.html#join=<id du salon>` y emmène directement (c'est ce que fait le widget).
+On donne son prénom une fois, et on arrive dans le hall, **micro coupé**. Les salons sont enregistrés et restent quand tout le monde est parti : « Nouveau salon », un nom, Créer. N'importe qui peut renommer un salon, et le supprimer quand il est vide (deux clics). On est dans un seul salon à la fois : en rejoindre un autre quitte le premier. Dans un salon, tout le monde s'entend. Recharger la page dans les deux minutes ramène dans le même salon, et un lien `index.html#join=<id du salon>` y emmène directement (c'est ce que fait le widget).
 
 Sous chaque salon, les gens présents avec une pastille verte (disponible) ou rouge (occupé), le micro coupé, et un bouton Wizz. En bas du hall, les gens en ligne qui ne sont dans aucun salon.
 
@@ -14,15 +14,15 @@ Sous chaque salon, les gens présents avec une pastille verte (disponible) ou ro
 
 Le bouton en haut à droite bascule ton statut. Occupé, tu ne reçois plus ni son ni notification, et personne ne peut te wizzer. Celui qui veut rejoindre un salon où tu es voit d'abord « X est occupé(e), rejoindre quand même ? » et doit cliquer une seconde fois. Le statut est mémorisé dans le navigateur.
 
-## Le bureau (carte, bêta)
+## Le Bureau (la carte)
 
-Activé depuis le menu « ⋯ » de la barre du bas (« Carte du bureau »), il apparaît comme un salon de plus, « Bureau (carte) ». Il apparaît aussi, même sans le switch, dès que quelqu'un s'y trouve. Le rejoindre ouvre la carte : on y parle seulement aux gens assez proches. Tout ce qui suit ne concerne que ce salon.
+Toujours en tête de liste, « Bureau (carte) » montre qui s'y trouve. « Entrer » ouvre la carte ; **cliquer sur quelqu'un dans ce salon, depuis le hall, t'y emmène directement à côté de lui** (et tu le suis). Sur la carte, on parle seulement aux gens assez proches. Tout ce qui suit ne concerne que ce salon.
 
 ## Comment ça marche
 
 **Il n'y a pas vraiment de serveur.** La voix ne transite par aucune machine centrale : les flux audio partent directement d'un navigateur à l'autre, en pair à pair (WebRTC, via PeerJS). Les gens d'un même salon (ou, dans le bureau, assez proches) ouvrent une connexion directe entre eux.
 
-**Firebase ne sert qu'au strict minimum** : la présence (qui est là, dans quel salon, disponible ou occupé, micro coupé ou non) et, dans le bureau, la position de chacun, quelques écritures par seconde quand on marche. Un salon n'est qu'un champ `room` sur le nœud de chaque personne : pas de table des salons à entretenir. Il joue le rôle d'annuaire pour que les navigateurs se trouvent, rien de plus. Aucune donnée audio n'y passe.
+**Firebase ne sert qu'au strict minimum** : la présence (qui est là, dans quel salon, disponible ou occupé, micro coupé ou non) et, dans le bureau, la position de chacun, quelques écritures par seconde quand on marche. Les salons sont dans `/rooms` (nom, créateur) ; où est chacun, c'est un champ `room` sur son nœud. Il joue le rôle d'annuaire pour que les navigateurs se trouvent, rien de plus. Aucune donnée audio n'y passe.
 
 ```text
 Navigateur A  <-->  voix en pair a pair (WebRTC)  <-->  Navigateur B
@@ -80,7 +80,7 @@ Servir le dossier en HTTP (WebRTC et le micro exigent un contexte sécurisé, `l
 python3 -m http.server 8000
 ```
 
-Puis créer un projet Firebase (Realtime Database) et coller sa configuration dans `FIREBASE_CONFIG`, en haut de `app.js`. Les instructions détaillées sont en commentaire dans le fichier. Les règles de la base doivent autoriser la lecture et l'écriture de `/users` et `/logs`.
+Puis créer un projet Firebase (Realtime Database) et coller sa configuration dans `FIREBASE_CONFIG`, en haut de `app.js`. Les instructions détaillées sont en commentaire dans le fichier. Les règles de la base doivent autoriser la lecture et l'écriture de `/users`, `/rooms` et `/logs`.
 
 Pour tester à plusieurs sur une même machine, il faut une identité par navigateur (l'identifiant est stocké dans `localStorage`) : par exemple `http://localhost:8000` dans un navigateur et `http://127.0.0.1:8000` dans un autre, ou une fenêtre de navigation privée.
 

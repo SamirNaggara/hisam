@@ -8,7 +8,7 @@
 // 2. Cree un projet (nom: "hisam" par ex, desactive Google Analytics)
 // 3. Dans le projet > "Build" > "Realtime Database" > "Create Database"
 //    - Region: europe-west1
-//    - Regles : /users et /logs en lecture/ecriture
+//    - Regles : /users, /rooms et /logs en lecture/ecriture
 // 4. Dans "Project settings" (engrenage) > "General" > scroll down
 //    - Clique "Add app" > Web (</>)
 //    - Nom: "hisam"
@@ -21,12 +21,13 @@
 //                        pos: { x, y, dir }, busy, busyPod }  (salon "bureau" seulement)
 //                      status = "available" | "busy"
 //   /logs/{pushId}   → { type, user, ts, date }   (date = ts en clair, heure locale)
-//   /rooms               → ancien systeme de salons, plus utilise (peut etre supprime)
+//   /rooms/{roomId}  → { name, createdAt, createdBy, createdById }
+//                      (les anciens salons ont aussi un passwordHash, ignore)
 //
-// Un salon n'existe qu'a travers ses membres : users/{id}/room. Le dernier qui
-// part l'emporte avec lui (sauf "General", toujours affiche). Un salon a la fois.
-// Le salon "bureau" est la carte 2D (switch dans le menu "...") : on n'y parle
-// qu'aux gens de son groupe de proximite.
+// Les salons restent dans /rooms quand tout le monde est parti ; on peut les
+// renommer, et les supprimer quand ils sont vides. Un salon a la fois.
+// users/{id}/room dit ou est chacun. Le salon "bureau" est la carte 2D, toujours
+// affiche et hors de /rooms : on n'y parle qu'aux gens de son groupe de proximite.
 //
 // Ce fichier est la couche reseau/audio : Firebase (annuaire, presence,
 // salons, positions) + PeerJS (voix et video en pair a pair), plus le hall des
@@ -73,7 +74,7 @@ let micProcessing = null; // chaine de nettoyage { stream, destroy }
 let isMuted = true;       // on arrive micro coupe ; le flux envoye est alors silentStream()
 let silentAudioStream = null; // piste muette envoyee aux pairs tant que le micro est coupe
 let connections = {}; // peerId → MediaConnection
-const APP_VERSION = "salons-1";
+const APP_VERSION = "salons-2";
 const PEER_MAX_RECONNECT = 8;
 const RESYNC_INTERVAL_MS = 5000;
 let resyncTimer = null;
@@ -89,15 +90,16 @@ let knownUsers = {}; // for notification diffing
 let initialLoadDone = false;
 
 // Salons
-const GENERAL_ROOM = { id: "general", name: "General" };
 const OFFICE_ROOM = { id: "bureau", name: "Bureau (carte)" };
 const ROOM_KEY = "hisam-last-room";   // { id, name, ts } : on y revient apres un refresh
 const STATUS_KEY = "hisam-status";
-const MAP_KEY = "hisam-map";          // "on" : le salon Bureau (carte 2D) est propose
 let myRoom = null;           // { id, name } du salon ou je suis, null = dans le hall
 let myStatus = localStorage.getItem(STATUS_KEY) === "busy" ? "busy" : "available";
 let statusBeforePod = null;  // statut a remettre en sortant d'un pod
 let joinConfirm = null;      // { id, until } : salon avec quelqu'un d'occupe, second clic attendu
+let deleteConfirm = null;    // { id, until } : suppression d'un salon, second clic attendu
+let renamingId = null;       // salon dont le nom est en cours d'edition
+let roomsData = {};          // /rooms : id -> { name, createdAt, createdBy, createdById }
 
 // Monde (salon Bureau)
 let world = null;            // instance World
@@ -180,7 +182,6 @@ const leaveRoomBtn = document.getElementById("leave-room-btn");
 const micSelect = document.getElementById("mic-select");
 const cameraBtn = document.getElementById("camera-btn");
 const busyBtn = document.getElementById("busy-btn");
-const mapToggleBtn = document.getElementById("map-toggle-btn");
 const moreBtn = document.getElementById("more-btn");
 const moreMenu = document.getElementById("more-menu");
 const screenBtn = document.getElementById("screen-btn");
@@ -260,6 +261,7 @@ function startApp() {
     setupPeer();
   }
   listenToUsers();
+  listenToRooms();
   drawFavicon(false);
   // On entre dans le bureau des que PeerJS est pret (voir setupPeer), ou apres
   // un delai si le serveur de signalisation ne repond pas (sans audio).
@@ -878,25 +880,46 @@ async function enterApp() {
 }
 
 // ---- Salons ----
-function mapEnabled() {
-  return localStorage.getItem(MAP_KEY) === "on";
+// Les salons vivent dans /rooms et restent quand tout le monde est parti. On
+// peut les renommer, et les supprimer quand ils sont vides. Le Bureau (la
+// carte) est un salon a part, toujours la, qui n'est pas dans /rooms.
+function listenToRooms() {
+  db.ref("rooms").on("value", (snap) => {
+    roomsData = snap.val() || {};
+    // Mon salon renomme : je mets a jour mon noeud (status.html, widget.html le lisent)
+    const fresh = myRoom && roomsData[myRoom.id];
+    if (fresh && fresh.name && fresh.name !== myRoom.name) {
+      myRoom = { id: myRoom.id, name: fresh.name };
+      db.ref(`users/${myId}/room`).set(myRoom);
+      saveLastRoom();
+      updateGroupStatus();
+    }
+    renderRooms();
+  }, (err) => {
+    console.error("[HiSam] Lecture de /rooms refusee :", err);
+  });
 }
 
-// #join=<id> : lien vers un salon (widget.html, partage). Le nom vient d'un membre.
+// Nom a jour d'un salon : /rooms, sinon ce que ses membres ont publie
+function roomById(id, fallbackName) {
+  if (id === OFFICE_ROOM.id) return OFFICE_ROOM;
+  if (roomsData[id] && roomsData[id].name) return { id, name: roomsData[id].name };
+  if (fallbackName) return { id, name: fallbackName };
+  const member = Object.values(allUsers).find((u) => roomIdOf(u) === id);
+  return member ? { id, name: member.room.name || "Salon" } : null;
+}
+
+// #join=<id> : lien vers un salon (widget.html, partage)
 function roomFromHash() {
   const m = location.hash.match(/^#join=(.+)$/);
   if (!m) return null;
   history.replaceState(null, "", location.pathname + location.search);
-  const id = decodeURIComponent(m[1]);
-  if (id === GENERAL_ROOM.id) return GENERAL_ROOM;
-  if (id === OFFICE_ROOM.id) return OFFICE_ROOM;
-  const member = Object.values(allUsers).find((u) => roomIdOf(u) === id);
-  if (!member) {
-    setWarning(netWarningEl, "Ce salon est vide, il n'existe plus");
-    setTimeout(() => { if (netWarningEl.textContent.startsWith("Ce salon est vide")) setWarning(netWarningEl, null); }, 5000);
-    return null;
+  const room = roomById(decodeURIComponent(m[1]));
+  if (!room) {
+    setWarning(netWarningEl, "Ce salon n'existe plus");
+    setTimeout(() => { if (netWarningEl.textContent.startsWith("Ce salon n'existe")) setWarning(netWarningEl, null); }, 5000);
   }
-  return { id, name: member.room.name || "Salon" };
+  return room;
 }
 
 function saveLastRoom() {
@@ -907,23 +930,25 @@ function loadLastRoom() {
   try {
     const saved = JSON.parse(localStorage.getItem(ROOM_KEY) || "null");
     if (!saved || !saved.id || Date.now() - saved.ts > LAST_POS_TTL_MS) return null;
-    return { id: saved.id, name: saved.name || "Salon" };
+    return roomById(saved.id, saved.name || "Salon");
   } catch {
     return null;
   }
 }
 
-// Les salons a afficher : General toujours, le Bureau si la carte est activee
-// (ou si quelqu'un y est), et tout salon qui a au moins un membre.
+// Les salons a afficher : mon salon, le Bureau, puis ceux de /rooms (et ceux
+// qu'un membre annonce sans qu'ils soient dans /rooms, pour ne cacher personne).
 function listRooms() {
   const rooms = new Map();
   const add = (room) => {
-    if (!rooms.has(room.id)) rooms.set(room.id, { id: room.id, name: room.name || "Salon", members: [] });
+    if (!rooms.has(room.id)) {
+      rooms.set(room.id, { id: room.id, name: room.name || "Salon", members: [], stored: !!roomsData[room.id] });
+    }
     return rooms.get(room.id);
   };
-  add(GENERAL_ROOM);
-  if (mapEnabled()) add(OFFICE_ROOM);
-  if (myRoom) add(myRoom).members.push(myId);
+  add(OFFICE_ROOM);
+  Object.keys(roomsData).forEach((id) => add(roomById(id)));
+  if (myRoom) add(roomById(myRoom.id, myRoom.name)).members.push(myId);
   const lobby = [];
   Object.keys(allUsers).forEach((id) => {
     if (id === myId) return;
@@ -931,10 +956,9 @@ function listRooms() {
     if (!isOnline(u)) return;
     const rid = roomIdOf(u);
     if (!rid) { lobby.push(id); return; }
-    const fixed = rid === GENERAL_ROOM.id ? GENERAL_ROOM : rid === OFFICE_ROOM.id ? OFFICE_ROOM : u.room;
-    add(fixed).members.push(id);
+    add(roomById(rid, u.room.name)).members.push(id);
   });
-  const rank = (r) => (myRoom && r.id === myRoom.id ? 0 : r.id === GENERAL_ROOM.id ? 1 : r.id === OFFICE_ROOM.id ? 2 : 3);
+  const rank = (r) => (myRoom && r.id === myRoom.id ? 0 : r.id === OFFICE_ROOM.id ? 1 : 2);
   const list = [...rooms.values()].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
   return { rooms: list, lobby };
 }
@@ -943,13 +967,14 @@ function nameOf(id) {
   return id === myId ? myName : allUsers[id]?.name || "?";
 }
 
-// Une pastille de personne : point de statut, prenom, micro coupe, wizz
-function personChip(id, { showMic } = {}) {
+// Une pastille de personne : point de statut, prenom, micro coupe, wizz.
+// onGo : la pastille est cliquable (Bureau : aller a cote de la personne).
+function personChip(id, { showMic, onGo } = {}) {
   const me = id === myId;
   const u = me ? { status: myStatus, muted: isMuted, busy: isBusy } : allUsers[id] || {};
   const busy = isBusyUser(u);
   const chip = document.createElement("span");
-  chip.className = "room-member" + (busy ? " busy" : "") + (me ? " me" : "");
+  chip.className = "room-member" + (busy ? " busy" : "") + (me ? " me" : "") + (onGo && !me ? " goto" : "");
   chip.title = busy ? "Occupe(e)" : "Disponible";
   const dot = document.createElement("span");
   dot.className = "status-dot";
@@ -964,6 +989,10 @@ function personChip(id, { showMic } = {}) {
     chip.appendChild(mic);
   }
   if (!me) {
+    if (onGo) {
+      chip.title = (busy ? "Occupe(e). " : "") + `Aller a cote de ${nameOf(id)} sur la carte`;
+      chip.addEventListener("click", () => onGo(id));
+    }
     const wizz = document.createElement("button");
     wizz.type = "button";
     wizz.className = "chip-wizz";
@@ -976,30 +1005,97 @@ function personChip(id, { showMic } = {}) {
   return chip;
 }
 
+// Depuis le hall : entrer dans le Bureau et se teleporter a cote de quelqu'un
+async function goToPerson(id) {
+  if (!myRoom || myRoom.id !== OFFICE_ROOM.id) await joinRoom(OFFICE_ROOM);
+  if (inOffice) joinPerson(id);
+}
+
+function smallButton(text, title, onClick) {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "btn-room-small";
+  b.textContent = text;
+  b.title = title;
+  b.addEventListener("click", onClick);
+  return b;
+}
+
 function renderRooms() {
   if (!appEntered) return;
+  // Un renommage en cours : on ne detruit pas le champ sous les doigts
+  if (renamingId && roomsList.contains(document.activeElement)) return;
   const { rooms, lobby } = listRooms();
   roomsList.innerHTML = "";
   rooms.forEach((room) => {
     const mine = !!myRoom && myRoom.id === room.id;
+    const office = room.id === OFFICE_ROOM.id;
+    const n = room.members.length;
     const card = document.createElement("div");
-    card.className = "room-card" + (mine ? " room-active" : "") + (room.id === OFFICE_ROOM.id ? " room-office" : "");
+    card.className = "room-card" + (mine ? " room-active" : "") + (office ? " room-office" : "");
 
     const head = document.createElement("div");
     head.className = "room-card-header";
     const info = document.createElement("div");
     info.className = "room-info";
-    const name = document.createElement("span");
-    name.className = "room-name";
-    name.textContent = room.name;
+    if (renamingId === room.id) {
+      const input = document.createElement("input");
+      input.type = "text";
+      input.className = "room-rename";
+      input.maxLength = 30;
+      input.value = room.name;
+      const finish = (save) => {
+        if (renamingId !== room.id) return;
+        renamingId = null;
+        const name = input.value.trim().slice(0, 30);
+        if (save && name && name !== room.name) renameRoom(room.id, name);
+        renderRooms();
+      };
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") finish(true);
+        if (e.key === "Escape") finish(false);
+      });
+      input.addEventListener("blur", () => finish(true));
+      info.appendChild(input);
+      setTimeout(() => { input.focus(); input.select(); }, 0);
+    } else {
+      const name = document.createElement("span");
+      name.className = "room-name";
+      name.textContent = room.name;
+      info.appendChild(name);
+    }
     const count = document.createElement("span");
     count.className = "room-count";
-    const n = room.members.length;
-    count.textContent = room.id === OFFICE_ROOM.id && !n ? "Carte 2D, voix de proximite"
+    count.textContent = office
+      ? (n ? `${n} sur la carte · clique sur quelqu'un pour aller a cote` : "Carte 2D, voix de proximite · personne pour l'instant")
       : n === 0 ? "Vide" : `${n} personne${n > 1 ? "s" : ""}`;
-    info.appendChild(name);
     info.appendChild(count);
     head.appendChild(info);
+
+    const actions = document.createElement("div");
+    actions.className = "room-actions";
+    if (room.stored && renamingId !== room.id) {
+      actions.appendChild(smallButton("Renommer", "Changer le nom du salon", () => {
+        renamingId = room.id;
+        deleteConfirm = null;
+        renderRooms();
+      }));
+      if (n === 0) {
+        const armedDel = deleteConfirm && deleteConfirm.id === room.id && Date.now() < deleteConfirm.until;
+        const del = smallButton(armedDel ? "Supprimer ?" : "Supprimer", "Supprimer ce salon (vide)", () => {
+          if (!armedDel) {
+            deleteConfirm = { id: room.id, until: Date.now() + 4000 };
+            setTimeout(renderRooms, 4050);
+            renderRooms();
+            return;
+          }
+          deleteConfirm = null;
+          deleteRoom(room.id);
+        });
+        if (armedDel) del.classList.add("danger");
+        actions.appendChild(del);
+      }
+    }
 
     const btn = document.createElement("button");
     btn.type = "button";
@@ -1013,9 +1109,10 @@ function renderRooms() {
       btn.className = "btn-room-action btn-join" + (armed ? " btn-confirm" : "");
       btn.textContent = armed
         ? `${busyNames.join(", ")} ${busyNames.length > 1 ? "sont occupes" : "est occupe(e)"}, rejoindre quand meme ?`
-        : "Rejoindre";
+        : office ? "Entrer" : "Rejoindre";
       btn.addEventListener("click", () => {
-        if (busyNames.length && !armed) {
+        // Dans le Bureau, la proximite protege deja les occupes (pods)
+        if (!office && busyNames.length && !armed) {
           joinConfirm = { id: room.id, until: Date.now() + 4000 };
           setTimeout(renderRooms, 4050);
           renderRooms();
@@ -1025,13 +1122,14 @@ function renderRooms() {
         joinRoom(room);
       });
     }
-    head.appendChild(btn);
+    actions.appendChild(btn);
+    head.appendChild(actions);
     card.appendChild(head);
 
     if (n) {
       const members = document.createElement("div");
       members.className = "room-members";
-      room.members.forEach((id) => members.appendChild(personChip(id, { showMic: true })));
+      room.members.forEach((id) => members.appendChild(personChip(id, { showMic: true, onGo: office ? goToPerson : null })));
       card.appendChild(members);
     }
     roomsList.appendChild(card);
@@ -1052,9 +1150,34 @@ newRoomForm.addEventListener("submit", (e) => {
   const name = newRoomInput.value.trim().slice(0, 30);
   if (!name) { newRoomInput.focus(); return; }
   newRoomInput.value = "";
-  // Identifiant genere localement (cle push), rien n'est ecrit hors de mon noeud
-  joinRoom({ id: db.ref("users").push().key, name });
+  const ref = db.ref("rooms").push();
+  ref.set({
+    name,
+    createdAt: firebase.database.ServerValue.TIMESTAMP,
+    createdBy: myName,
+    createdById: myId,
+  }).catch((err) => {
+    console.error("[HiSam] Creation du salon refusee :", err);
+    setWarning(netWarningEl, "Impossible d'enregistrer le salon");
+  });
+  joinRoom({ id: ref.key, name });
 });
+
+function renameRoom(id, name) {
+  db.ref(`rooms/${id}/name`).set(name).catch((err) => {
+    console.error("[HiSam] Renommage refuse :", err);
+    setWarning(netWarningEl, "Impossible de renommer le salon");
+  });
+}
+
+function deleteRoom(id) {
+  const busy = Object.values(allUsers).some((u) => roomIdOf(u) === id);
+  if (busy) return; // quelqu'un vient d'entrer
+  db.ref(`rooms/${id}`).remove().catch((err) => {
+    console.error("[HiSam] Suppression refusee :", err);
+    setWarning(netWarningEl, "Impossible de supprimer le salon");
+  });
+}
 
 // Un salon a la fois : rejoindre quitte le precedent.
 async function joinRoom(room) {
@@ -1111,20 +1234,11 @@ function updateRoomUi() {
   leaveRoomBtn.style.display = myRoom ? "" : "none";
   leaveRoomBtn.textContent = showMap ? "Quitter le bureau" : "Quitter le salon";
   [globalMuteBtn, cameraBtn, screenBtn].forEach((b) => { b.disabled = !myRoom; });
-  mapToggleBtn.textContent = mapEnabled() ? "Carte du bureau (beta) : activee" : "Carte du bureau (beta) : desactivee";
-  mapToggleBtn.classList.toggle("active", mapEnabled());
   renderRooms();
   renderPresenceBar();
   updateGroupStatus();
   updateBusyUi();
 }
-
-mapToggleBtn.addEventListener("click", () => {
-  moreMenu.classList.remove("open");
-  localStorage.setItem(MAP_KEY, mapEnabled() ? "off" : "on");
-  if (!mapEnabled() && inOffice) leaveRoom();
-  updateRoomUi();
-});
 
 // ---- Statut Disponible / Occupe ----
 function setStatus(status) {
