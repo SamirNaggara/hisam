@@ -1215,6 +1215,9 @@ const SCENE_GAP = 9;           // ecart minimal entre deux personnages
 const WALK_SPEED = 32;         // unites par seconde
 const REMOTE_MOVE_MS = 260;    // un pair dont la place vient de changer "marche" encore ce temps
 const SPEAKING_LEVEL = 0.04;
+const SPRITE_PAD_X = 4;        // marge du canvas autour du sprite (pixels du sprite)
+const SPRITE_PAD_Y = 2;
+const TYPING_MS = 180;         // rythme de la frappe au clavier a l'arret
 
 const scenes = new Map();      // roomId -> { el, floor, chars: Map(id -> char) }
 let myX = null;                // ma place dans mon salon, null hors salon
@@ -1426,8 +1429,8 @@ function makeCharacter(id) {
   const canvas = document.createElement("canvas");
   canvas.className = "scene-sprite";
   const meta = World.characterMeta();
-  canvas.width = meta.frameW;
-  canvas.height = meta.frameH;
+  canvas.width = meta.frameW + 2 * SPRITE_PAD_X;  // de la place pour le bureau
+  canvas.height = meta.frameH + SPRITE_PAD_Y;
   el.appendChild(canvas);
   const c = { id, el, label, canvas, x: null, dir: 0, movingUntil: 0, drawn: "" };
   if (id !== myId) {
@@ -1485,23 +1488,51 @@ function updateScene(scene) {
   });
 }
 
-// Marche : le cycle de world.js ; a l'arret, face a nous
+// Marche : le cycle de world.js. A l'arret : assis a un bureau, face a nous,
+// derriere son ordinateur portable, et il tape (les mains montent et descendent).
 function drawCharacterFrame(c, now) {
   const meta = World.characterMeta();
   const moving = now < c.movingUntil;
   const cycle = meta.walkCycle || [1, 0, 2, 0];
   const frame = moving ? cycle[Math.floor(now / (1000 / (meta.fps || 8))) % cycle.length] : 0;
   const dir = moving ? c.dir : 0;
-  const key = `${c.variant}:${dir}:${frame}`;
+  const typing = moving ? -1 : Math.floor(now / TYPING_MS) % 2;
+  const key = `${c.variant}:${dir}:${frame}:${typing}`;
   if (key === c.drawn) return;
   c.drawn = key;
   const ctx = c.canvas.getContext("2d");
   ctx.imageSmoothingEnabled = false;
   ctx.clearRect(0, 0, c.canvas.width, c.canvas.height);
-  World.drawFrame(ctx, c.variant, dir, frame, 0, 0);
+  if (moving) {
+    World.drawFrame(ctx, c.variant, dir, frame, SPRITE_PAD_X, SPRITE_PAD_Y);
+    return;
+  }
+  // Assis : un pixel plus bas que debout
+  World.drawFrame(ctx, c.variant, 0, 0, SPRITE_PAD_X, SPRITE_PAD_Y + 1);
+  drawDesk(ctx, c, typing);
 }
 
-// Pas de marche et anneau "il parle" : quelques images par seconde suffisent
+// Le bureau et le portable, en pixels du sprite (16x20, decale de SPRITE_PAD_X)
+function drawDesk(ctx, c, typing) {
+  const meta = World.characterMeta();
+  const w = c.canvas.width, h = c.canvas.height, x0 = SPRITE_PAD_X;
+  const variants = meta.variants || [];
+  const skin = (variants[c.variant % (variants.length || 1)] || {}).skin || "#f1c27d";
+  const px = (color, x, y, pw = 1, ph = 1) => { ctx.fillStyle = color; ctx.fillRect(x, y, pw, ph); };
+  // Mains sur le clavier, de chaque cote de l'ecran : elles alternent
+  px(skin, x0 + 2, h - 8 - typing, 2, 2);
+  px(skin, x0 + 12, h - 7 - (1 - typing), 2, 2);
+  // Dos de l'ecran (on voit le capot), avec un logo
+  px("#78716c", x0 + 3, h - 10, 10, 4);
+  px("#a8a29e", x0 + 4, h - 9, 8, 3);
+  px("#f5f5f4", x0 + 7, h - 9, 2, 2);
+  // Plateau puis facade du bureau, qui cache les jambes
+  px("#b45309", 0, h - 6, w, 2);
+  px("#92400e", 1, h - 4, w - 2, 4);
+  px("#78350f", 2, h - 3, w - 4, 1);
+}
+
+// Pas de marche, frappe au clavier et "il parle" : quelques images par seconde suffisent
 function ensureSceneTimer() {
   if (sceneTimer) return;
   sceneTimer = setInterval(() => {

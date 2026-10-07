@@ -599,15 +599,18 @@ header h1 {
 }
 
 .scene-sprite {
-  width: 32px;
-  height: 40px;
+  width: 48px;
+  height: 44px;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
-  border-radius: 50%;
+}
+
+/* Il parle : son prenom s'entoure d'un halo */
+.scene-name {
   transition: box-shadow 0.12s;
 }
 
-.scene-char.speaking .scene-sprite {
+.scene-char.speaking .scene-name {
   box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.45);
 }
 
