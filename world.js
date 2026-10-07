@@ -1058,6 +1058,16 @@
     drawSprite(ctx, variant, 0, 0, dx, dy);
   }
 
+  // Un personnage dans une direction (DIRS) et une frame de marche donnees :
+  // les salons du hall s'en servent (app.js, scene des salons)
+  function drawFrame(ctx, variant, dir, frame, dx, dy) {
+    drawSprite(ctx, variant, dir, frame, dx, dy);
+  }
+
+  function characterMeta() {
+    return characters.meta || { frameW: 16, frameH: 20, walkCycle: [1, 0, 2, 0], fps: 8 };
+  }
+
   global.World = {
     CONFIG,
     DIRS,
@@ -1065,6 +1075,8 @@
     loadCharacters,
     renderMapPreview,
     drawCharacter,
+    drawFrame,
+    characterMeta,
     drawAvatarPreview,
     avatarFor,
     variantCount,

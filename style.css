@@ -198,132 +198,6 @@ header h1 {
   font-weight: 500;
 }
 
-/* "Rejoindre ?" : panneau flottant en bas a droite du monde. Les autres
-   personnes, prenom au-dessus du personnage, celles qui se parlent cote a
-   cote ; un clic nous teleporte a cote. */
-.presence-bar {
-  position: absolute;
-  right: 12px;
-  bottom: 12px;
-  max-width: calc(100% - 24px);
-  max-height: calc(100% - 24px);
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 0.4rem;
-  padding: 0.55rem 0.7rem 0.7rem;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.94);
-  border: 1.5px solid #e7e5e4;
-  box-shadow: var(--shadow-lg);
-  overflow-y: auto;
-  z-index: 6;
-  scrollbar-width: none;
-}
-
-.presence-bar::-webkit-scrollbar {
-  display: none;
-}
-
-.presence-title {
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--text-soft);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  text-align: center;
-  white-space: nowrap;
-}
-
-.presence-group {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 0.2rem;
-  padding: 0.3rem 0.35rem 0.2rem;
-  border: 1.5px solid transparent;
-  border-radius: 14px;
-  flex: none;
-}
-
-.presence-group.mine {
-  border-color: var(--accent);
-  background: var(--accent-light);
-}
-
-.presence-person {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.2rem;
-  padding: 0.25rem 0.4rem 0.15rem;
-  border: none;
-  border-radius: 12px;
-  background: transparent;
-  color: var(--text);
-  font: inherit;
-  cursor: pointer;
-  transition: background 0.15s, transform 0.15s;
-}
-
-.presence-person:hover {
-  background: rgba(13, 148, 136, 0.12);
-  transform: translateY(-2px);
-}
-
-.presence-name {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  max-width: 120px;
-  padding: 0.1rem 0.5rem;
-  border-radius: 999px;
-  background: var(--accent);
-  color: #fff;
-  font-size: 0.78rem;
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.presence-person.muted .presence-name {
-  background: #78716c;
-}
-
-.presence-person.busy .presence-name {
-  background: #d97706;
-}
-
-.btn-more.active {
-  background: #fef3c7;
-  border-color: #d97706;
-  color: #b45309;
-}
-
-.more-wrap {
-  position: relative;
-}
-
-.more-menu {
-  display: none;
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 8px);
-  min-width: 220px;
-  padding: 0.35rem;
-  background: var(--card);
-  border: 1px solid #e7e5e4;
-  border-radius: 10px;
-  box-shadow: var(--shadow-lg);
-  z-index: 60;
-}
-
-.more-menu.open {
-  display: block;
-}
-
 .more-item {
   display: block;
   width: 100%;
@@ -351,39 +225,6 @@ header h1 {
 .more-item:disabled {
   opacity: 0.4;
   cursor: not-allowed;
-}
-
-.presence-person.following .presence-name {
-  box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--accent);
-}
-
-.presence-cell {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.1rem;
-}
-
-.presence-wizz {
-  padding: 0.1rem 0.5rem;
-  border: 1px solid #fcd34d;
-  border-radius: 999px;
-  background: #fffbeb;
-  color: #b45309;
-  font: inherit;
-  font-size: 0.66rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-
-.presence-wizz:hover {
-  background: #fef3c7;
-}
-
-.presence-wizz:disabled {
-  opacity: 0.4;
-  cursor: default;
 }
 
 /* Le wizz : tout l'ecran tremble */
@@ -419,14 +260,6 @@ header h1 {
   #main-screen.wizz {
     animation: wizz-soft 0.9s ease-in-out;
   }
-}
-
-.presence-avatar {
-  width: 48px;
-  height: 60px;
-  flex: none;
-  image-rendering: pixelated;
-  image-rendering: crisp-edges;
 }
 
 .presence-mic {
@@ -709,93 +542,141 @@ header h1 {
   max-width: 260px;
 }
 
-/* ---- Encart du Bureau, bien en dessous des salons ---- */
+/* ---- Scene d'un salon : un personnage par personne, a l'horizontale ---- */
 
-.office-widget {
-  margin-top: 3rem;
-  padding-top: 1.5rem;
-  border-top: 1px solid #e7e5e4;
-}
-
-.office-widget h2 {
-  font-size: 1.1rem;
-  font-weight: 600;
-}
-
-.office-count {
-  margin-top: 0.25rem;
-  font-size: 0.85rem;
-  color: var(--text-soft);
-}
-
-.office-people {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  margin-top: 0.6rem;
-  font-size: 0.8rem;
-}
-
-.office-preview {
+.room-scene {
   position: relative;
+  height: 92px;
+  margin: 0 1.25rem 1rem;
+  border-radius: 10px;
+  background: linear-gradient(to bottom, #f5f5f4 0%, #f5f5f4 72%, #e7e5e4 72%, #d6d3d1 100%);
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Animations d'arrivee seulement a la creation (classe retiree ensuite) :
+   renderRooms deplace la bande d'une carte a l'autre, ce qui les relancerait */
+.room-scene.opening {
+  animation: scene-open 0.35s ease-out;
+}
+
+.room-scene.mine {
+  background: linear-gradient(to bottom, #f0fdfa 0%, #f0fdfa 72%, #99f6e4 72%, #5eead4 100%);
+  cursor: crosshair;
+}
+
+@keyframes scene-open {
+  from { height: 0; margin-bottom: 0; opacity: 0; }
+  to { height: 92px; opacity: 1; }
+}
+
+.scene-char {
+  position: absolute;
+  bottom: 12px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  width: 100%;
-  margin-top: 0.85rem;
-  padding: 0;
-  border: none;
-  border-radius: var(--radius);
-  overflow: hidden;
-  background: #1c1917;
-  box-shadow: var(--shadow);
+  gap: 2px;
+  transform: translateX(-50%);
+  transition: left 0.15s linear;
   cursor: pointer;
-  transition: box-shadow 0.2s;
 }
 
-.office-canvas {
-  display: block;
-  height: 320px;
-  max-width: 100%;
-  object-fit: contain;
+.scene-char.arriving {
+  animation: char-in 0.3s ease-out;
+}
+
+.scene-char.me {
+  transition: none;
+  cursor: default;
+  z-index: 2;
+}
+
+@keyframes char-in {
+  from { opacity: 0; transform: translate(-50%, -10px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+.scene-sprite {
+  width: 32px;
+  height: 40px;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
-  transition: transform 0.3s, filter 0.3s;
+  border-radius: 50%;
+  transition: box-shadow 0.12s;
 }
 
-.office-enter {
-  align-self: stretch;
-  padding: 0.7rem 1rem;
-  background: var(--accent);
-  color: white;
-  font-family: inherit;
-  font-size: 0.9rem;
+.scene-char.speaking .scene-sprite {
+  box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.45);
+}
+
+.scene-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  max-width: 96px;
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  background: #57534e;
+  color: #fff;
+  font-size: 0.68rem;
   font-weight: 600;
-  text-align: center;
-  transition: background 0.2s;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.office-preview:hover {
-  box-shadow: var(--shadow-lg);
+.scene-char.me .scene-name {
+  background: var(--accent);
 }
 
-.office-preview:hover .office-canvas {
-  filter: brightness(1.1);
+.scene-char.busy .scene-name {
+  background: #d97706;
 }
 
-.office-preview:hover .office-enter {
-  background: #0f766e;
+.scene-name .presence-mic {
+  color: #fecaca;
 }
 
-.room-member.goto {
+/* Wizz : une petite bulle au-dessus de la tete, au survol ou au tap */
+.scene-wizz {
+  position: absolute;
+  bottom: calc(100% + 2px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: none;
+  padding: 0.1rem 0.5rem;
+  border: 1px solid #fcd34d;
+  border-radius: 999px;
+  background: #fffbeb;
+  color: #b45309;
+  font: inherit;
+  font-size: 0.66rem;
+  font-weight: 600;
+  white-space: nowrap;
   cursor: pointer;
 }
 
-.room-member.goto:hover {
-  background: var(--accent-light);
+.scene-char:hover .scene-wizz,
+.scene-char.open .scene-wizz {
+  display: block;
 }
 
-.room-members,
+.scene-wizz:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.scene-char.shake .scene-sprite {
+  animation: wizz-soft 0.3s ease-in-out 3;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .room-scene, .scene-char { animation: none; }
+  .scene-char { transition: none; }
+}
+
 .lobby-list {
   display: flex;
   flex-wrap: wrap;
@@ -803,10 +684,6 @@ header h1 {
   gap: 0.35rem;
   font-size: 0.8rem;
   color: var(--text-soft);
-}
-
-.room-members {
-  padding: 0 1.25rem 0.85rem;
 }
 
 .lobby-list {
@@ -829,10 +706,6 @@ header h1 {
 
 .room-member.me {
   padding-right: 0.55rem;
-}
-
-.room-member .presence-mic {
-  color: var(--danger);
 }
 
 .chip-wizz {
@@ -862,29 +735,6 @@ header h1 {
 .btn-mute:disabled {
   opacity: 0.35;
   cursor: default;
-}
-
-/* ---- MONDE ---- */
-
-.world-wrap {
-  position: relative;
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-  background: #1c1917;
-}
-
-.world-canvas {
-  position: absolute;
-  inset: 0;
-  display: block;
-  image-rendering: pixelated;
-  image-rendering: crisp-edges;
-  outline: none;
-  touch-action: none;
-  cursor: pointer;
-  user-select: none;
-  -webkit-user-select: none;
 }
 
 .world-overlay {
@@ -1187,25 +1037,6 @@ header h1 {
 
   .header-right {
     gap: 0.35rem;
-  }
-
-  .presence-bar {
-    right: 8px;
-    bottom: 8px;
-    max-width: calc(100% - 16px);
-    max-height: calc(100% - 16px);
-    gap: 0.3rem;
-    padding: 0.45rem 0.5rem 0.5rem;
-  }
-
-  .presence-avatar {
-    width: 32px;
-    height: 40px;
-  }
-
-  .presence-name {
-    max-width: 84px;
-    font-size: 0.68rem;
   }
 
   .active-bar {

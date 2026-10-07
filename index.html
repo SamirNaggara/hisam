@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HiSam</title>
   <link rel="icon" id="favicon" type="image/svg+xml" href="favicon.svg">
-  <link rel="stylesheet" href="style.css?v=salons-5">
+  <link rel="stylesheet" href="style.css?v=salons-6">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
@@ -49,26 +49,8 @@
           <div id="rooms-list" class="rooms-list"></div>
           <div id="lobby-list" class="lobby-list"></div>
 
-          <!-- Le Bureau : apercu de la carte, un clic pour y entrer -->
-          <section class="office-widget">
-            <h2>Bureau virtuel</h2>
-            <p id="office-count" class="office-count"></p>
-            <div id="office-people" class="office-people"></div>
-            <button id="office-preview" class="office-preview" type="button" title="Entrer dans le bureau">
-              <canvas id="office-canvas" class="office-canvas"></canvas>
-              <span class="office-enter">Entrer dans le bureau &rarr;</span>
-            </button>
-          </section>
         </div>
       </section>
-
-      <!-- Salon Bureau : la carte 2D -->
-      <div id="world-wrap" class="world-wrap" style="display:none">
-        <canvas id="world" class="world-canvas" tabindex="0"></canvas>
-
-        <!-- Qui est au bureau : colonne verticale a droite, par-dessus le monde -->
-        <div id="presence-bar" class="presence-bar" aria-label="Qui est au bureau"></div>
-      </div>
 
       <!-- Video (camera + partage d'ecran) : panneau flottant -->
       <div id="video-area" class="video-area" style="display:none">
@@ -83,7 +65,7 @@
       </div>
     </div>
 
-    <!-- Barre de controle (toujours visible dans le bureau) -->
+    <!-- Barre de controle -->
     <div id="active-bar" class="active-bar">
       <div class="active-bar-status" id="active-bar-status">
         <span id="group-status" class="group-status">Connexion...</span>
@@ -119,14 +101,6 @@
             <div class="audio-level-bar" id="remote-level-bar"></div>
           </div>
         </div>
-        <div class="more-wrap">
-          <button id="more-btn" class="btn-mute btn-more" title="Plus">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
-          </button>
-          <div id="more-menu" class="more-menu">
-            <button id="busy-btn" class="more-item" type="button">Occupe (s'isoler dans un pod)</button>
-          </div>
-        </div>
         <button id="leave-room-btn" class="btn-leave-all" style="display:none">Quitter le salon</button>
       </div>
     </div>
@@ -140,10 +114,8 @@
   <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
-  <script src="proximity.js?v=world-3"></script>
-  <script src="world-map.js?v=pods-1"></script>
-  <script src="world.js?v=salons-5"></script>
+  <script src="world.js?v=salons-6"></script>
   <script src="audio-processing.js?v=audio-2"></script>
-  <script src="app.js?v=salons-5"></script>
+  <script src="app.js?v=salons-6"></script>
 </body>
 </html>
