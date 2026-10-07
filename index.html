@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HiSam</title>
   <link rel="icon" id="favicon" type="image/svg+xml" href="favicon.svg">
-  <link rel="stylesheet" href="style.css?v=salons-6">
+  <link rel="stylesheet" href="style.css?v=salons-7">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
@@ -41,16 +41,24 @@
         <div class="rooms-inner">
           <div class="rooms-header">
             <h2>Salons</h2>
-            <form id="new-room-form" class="new-room-form" autocomplete="off">
-              <input type="text" id="new-room-input" placeholder="Nouveau salon" maxlength="30">
-              <button type="submit" class="btn-create-room">Creer</button>
-            </form>
+            <button type="button" id="new-room-btn" class="btn-create-room">+ Nouveau salon</button>
           </div>
           <div id="rooms-list" class="rooms-list"></div>
           <div id="lobby-list" class="lobby-list"></div>
-
         </div>
       </section>
+
+      <!-- Creation d'un salon : on demande le nom dans une modale -->
+      <dialog id="new-room-dialog" class="modal">
+        <form id="new-room-form" class="modal-body" autocomplete="off">
+          <h3>Nouveau salon</h3>
+          <input type="text" id="new-room-input" placeholder="Nom du salon" maxlength="30">
+          <div class="modal-actions">
+            <button type="button" id="new-room-cancel" class="btn-modal-cancel">Annuler</button>
+            <button type="submit" class="btn-create-room">Creer</button>
+          </div>
+        </form>
+      </dialog>
 
       <!-- Video (camera + partage d'ecran) : panneau flottant -->
       <div id="video-area" class="video-area" style="display:none">
@@ -116,6 +124,6 @@
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
   <script src="world.js?v=salons-6"></script>
   <script src="audio-processing.js?v=audio-2"></script>
-  <script src="app.js?v=salons-6"></script>
+  <script src="app.js?v=salons-7"></script>
 </body>
 </html>

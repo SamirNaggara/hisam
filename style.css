@@ -364,23 +364,69 @@ header h1 {
   font-weight: 600;
 }
 
-.new-room-form {
-  display: flex;
-  gap: 0.4rem;
+/* ---- Modale "Nouveau salon" ---- */
+
+.modal {
+  width: min(360px, calc(100vw - 32px));
+  margin: auto;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--text);
+  box-shadow: var(--shadow-lg);
 }
 
-.new-room-form input {
-  width: 180px;
-  padding: 0.4rem 0.7rem;
+.modal::backdrop {
+  background: rgba(28, 25, 23, 0.4);
+}
+
+.modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  padding: 1.25rem;
+}
+
+.modal-body h3 {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.modal-body input {
+  padding: 0.55rem 0.75rem;
   border: 1.5px solid #e7e5e4;
   border-radius: 8px;
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   font-family: inherit;
   outline: none;
 }
 
-.new-room-form input:focus {
+.modal-body input:focus {
   border-color: var(--accent);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.btn-modal-cancel {
+  font-size: 0.85rem;
+  padding: 0.4rem 0.8rem;
+  background: transparent;
+  color: var(--text-soft);
+  border: none;
+  border-radius: 8px;
+  font-family: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-modal-cancel:hover {
+  background: #f5f5f4;
+  color: var(--text);
 }
 
 .btn-create-room {
@@ -1066,10 +1112,6 @@ header h1 {
 
   .rooms-view {
     padding: 1rem 0.75rem;
-  }
-
-  .new-room-form input {
-    width: 130px;
   }
 
   .room-card-header {

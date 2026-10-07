@@ -74,7 +74,7 @@ let micProcessing = null; // chaine de nettoyage { stream, destroy }
 let isMuted = true;       // on arrive micro coupe ; le flux envoye est alors silentStream()
 let silentAudioStream = null; // piste muette envoyee aux pairs tant que le micro est coupe
 let connections = {}; // peerId → MediaConnection
-const APP_VERSION = "salons-5";
+const APP_VERSION = "salons-7";
 const PEER_MAX_RECONNECT = 8;
 const RESYNC_INTERVAL_MS = 5000;
 let resyncTimer = null;
@@ -147,6 +147,9 @@ const notifBtn = document.getElementById("notif-btn");
 const audioContainer = document.getElementById("audio-container");
 const roomsList = document.getElementById("rooms-list");
 const lobbyList = document.getElementById("lobby-list");
+const newRoomBtn = document.getElementById("new-room-btn");
+const newRoomDialog = document.getElementById("new-room-dialog");
+const newRoomCancel = document.getElementById("new-room-cancel");
 const newRoomForm = document.getElementById("new-room-form");
 const newRoomInput = document.getElementById("new-room-input");
 const statusBtn = document.getElementById("status-btn");
@@ -1031,11 +1034,24 @@ function renderRooms() {
   }
 }
 
+// "+ Nouveau salon" : le nom est demande dans une modale (Echap ou clic a
+// cote pour annuler)
+newRoomBtn.addEventListener("click", () => {
+  newRoomInput.value = "";
+  newRoomDialog.showModal();
+  newRoomInput.focus();
+});
+newRoomCancel.addEventListener("click", () => newRoomDialog.close());
+newRoomDialog.addEventListener("click", (e) => {
+  if (e.target === newRoomDialog) newRoomDialog.close(); // clic sur le fond
+});
+
 newRoomForm.addEventListener("submit", (e) => {
   e.preventDefault();
   const name = newRoomInput.value.trim().slice(0, 30);
   if (!name) { newRoomInput.focus(); return; }
   newRoomInput.value = "";
+  newRoomDialog.close();
   const ref = db.ref("rooms").push();
   ref.set({
     name,
