@@ -1611,10 +1611,12 @@ function shakeCharacter(id) {
 
 // ---- Bombes a eau ----
 // K : mon personnage lance une bombe a eau vers le plus proche dans la
-// direction ou il regarde. Elle decrit un arc, retombe sur sa tete, eclate,
-// et lui envoie un wizz (avec les memes regles : pas d'Occupe, 10 s entre
-// deux wizz). Le lancer est publie dans users/{id}/bomb pour que tout le
-// salon la voie voler ; seul le lanceur envoie le wizz.
+// direction ou il regarde. Seul dans mon salon, elle traverse le sol et tombe
+// dans le premier salon occupe en dessous, sur la personne la plus proche de
+// ma place. Elle retombe sur sa tete, eclate, et lui envoie un wizz (memes
+// regles : pas d'Occupe, 10 s entre deux wizz). Le lancer est publie dans
+// users/{id}/bomb pour que tout le monde la voie voler ; seul le lanceur
+// envoie le wizz.
 const BOMB_COOLDOWN_MS = 700;
 const BOMB_HAND_Y = 30;        // depart : a hauteur de main (px depuis le bas de la bande)
 const BOMB_HEAD_Y = 52;        // arrivee : sur la tete
@@ -1623,13 +1625,41 @@ const BOMB_MISS_DIST = 22;
 const bombSeen = {};           // id -> dernier ts de lancer observe
 let lastBombAt = 0;
 
-// Le plus proche devant moi, sinon le plus proche tout court
+function nearestTo(x, ids) {
+  let best = null;
+  ids.forEach((id) => {
+    const o = { id, x: remoteX(id) };
+    if (!best || Math.abs(o.x - x) < Math.abs(best.x - x)) best = o;
+  });
+  return best;
+}
+
+// Le premier salon occupe sous le mien, dans l'ordre de la page
+function roomBelow() {
+  const mine = scenes.get(myRoom.id);
+  if (!mine || !mine.el.isConnected) return null;
+  let below = null;
+  scenes.forEach((scene, roomId) => {
+    if (roomId === myRoom.id || !scene.el.isConnected || !scene.chars.size) return;
+    if (!(mine.el.compareDocumentPosition(scene.el) & Node.DOCUMENT_POSITION_FOLLOWING)) return;
+    if (!below || scene.el.compareDocumentPosition(below.scene.el) & Node.DOCUMENT_POSITION_FOLLOWING) {
+      below = { roomId, scene };
+    }
+  });
+  return below;
+}
+
+// Dans mon salon : le plus proche devant moi, sinon le plus proche tout court.
+// Seul : le plus proche de ma place dans le salon d'en dessous.
 function bombTarget() {
-  const others = roomPeers().map((id) => ({ id, x: remoteX(id) }));
-  const ahead = others.filter((o) => myDir === 1 ? o.x < myX : myDir === 2 ? o.x > myX : true);
-  const pool = ahead.length ? ahead : others;
-  pool.sort((a, b) => Math.abs(a.x - myX) - Math.abs(b.x - myX));
-  return pool[0] || null;
+  const peers = roomPeers();
+  if (peers.length) {
+    const ahead = peers.filter((id) => myDir === 1 ? remoteX(id) < myX : myDir === 2 ? remoteX(id) > myX : true);
+    return { room: myRoom.id, ...nearestTo(myX, ahead.length ? ahead : peers) };
+  }
+  const below = roomBelow();
+  if (!below) return null;
+  return { room: below.roomId, ...nearestTo(myX, [...below.scene.chars.keys()]) };
 }
 
 function throwBomb() {
@@ -1638,6 +1668,7 @@ function throwBomb() {
   lastBombAt = Date.now();
   const target = bombTarget();
   const bomb = {
+    room: target ? target.room : myRoom.id,
     from: Math.round(myX * 10) / 10,
     to: target ? Math.round(target.x * 10) / 10 : clampX(myX + (myDir === 1 ? -1 : 1) * BOMB_MISS_DIST),
     target: target ? target.id : null,
@@ -1647,39 +1678,50 @@ function throwBomb() {
   animateBomb(myRoom.id, myId, bomb, true);
 }
 
+// La bombe vole au-dessus de la page (position fixe) : elle peut passer d'une
+// bande a l'autre. Les deux extremites sont recalculees a chaque image, au cas
+// ou la page defile.
 function animateBomb(roomId, throwerId, bomb, mine) {
-  const scene = scenes.get(roomId);
-  if (!scene || typeof bomb.from !== "number" || typeof bomb.to !== "number") return;
-  const thrower = scene.chars.get(throwerId);
+  const fromScene = scenes.get(roomId);
+  const toScene = scenes.get(bomb.room || roomId);
+  if (!fromScene || !toScene || typeof bomb.from !== "number" || typeof bomb.to !== "number") return;
+  const thrower = fromScene.chars.get(throwerId);
   if (thrower) {
     thrower.el.classList.remove("throwing");
     void thrower.el.offsetWidth;
     thrower.el.classList.add("throwing");
     setTimeout(() => thrower.el.classList.remove("throwing"), 300);
   }
-  const hit = !!bomb.target && scene.chars.has(bomb.target);
+  const hit = !!bomb.target && toScene.chars.has(bomb.target);
+  const y1 = hit ? BOMB_HEAD_Y : BOMB_FLOOR_Y;
+  const point = (scene, x, y) => {
+    const r = scene.el.getBoundingClientRect();
+    return { x: r.left + (x / 100) * r.width, y: r.bottom - y };
+  };
+  const p0 = point(fromScene, bomb.from, BOMB_HAND_Y), p1 = point(toScene, bomb.to, y1);
+  const dist = Math.hypot(p1.x - p0.x, p1.y - p0.y);
+  const duration = Math.min(1300, 420 + dist * 1.6);
+  // Vers le bas, un petit saut suffit ; a plat, un vrai arc
+  const peak = p1.y > p0.y + 20 ? 30 : Math.min(70, 28 + dist * 0.25);
   const el = document.createElement("div");
   el.className = "water-bomb";
-  scene.el.appendChild(el);
-  const width = scene.el.clientWidth || 300;
-  const distPx = Math.abs(bomb.to - bomb.from) / 100 * width;
-  const duration = Math.min(1100, 420 + distPx * 1.6);
-  const y0 = BOMB_HAND_Y, y1 = hit ? BOMB_HEAD_Y : BOMB_FLOOR_Y;
-  const peak = Math.min(70, 28 + distPx * 0.25);
+  document.body.appendChild(el);
   const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const spin = bomb.to >= bomb.from ? 1 : -1;
   const start = performance.now();
   const frame = (now) => {
-    if (!el.isConnected) return; // la bande a disparu (salon vide, on est parti)
+    // Une bande a disparu (salon vide, on est parti) : la bombe aussi
+    if (!fromScene.el.isConnected || !toScene.el.isConnected) { el.remove(); return; }
     const t = Math.min(1, (now - start) / duration);
+    const a = point(fromScene, bomb.from, BOMB_HAND_Y), b = point(toScene, bomb.to, y1);
     // Monte puis retombe : a la fin elle descend sur la tete de la cible
-    const y = y0 + (y1 - y0) * t + 4 * peak * t * (1 - t);
-    el.style.left = `${bomb.from + (bomb.to - bomb.from) * t}%`;
-    el.style.bottom = `${y}px`;
-    if (!reduced) el.style.transform = `translate(-50%, 50%) rotate(${(bomb.to > bomb.from ? 1 : -1) * t * 540}deg)`;
+    el.style.left = `${a.x + (b.x - a.x) * t}px`;
+    el.style.top = `${a.y + (b.y - a.y) * t - 4 * peak * t * (1 - t)}px`;
+    if (!reduced) el.style.transform = `translate(-50%, -50%) rotate(${spin * t * 540}deg)`;
     if (t < 1) { requestAnimationFrame(frame); return; }
     el.remove();
-    splashBomb(scene, bomb.to, y1);
-    if (hit) soakCharacter(scene, bomb.target);
+    splashBomb(toScene, bomb.to, y1);
+    if (hit) soakCharacter(toScene, bomb.target);
     if (mine && hit) sendWizz(bomb.target);
   };
   requestAnimationFrame(frame);

@@ -731,14 +731,14 @@ header h1 {
 }
 
 .water-bomb {
-  position: absolute;
-  z-index: 3;
+  position: fixed;
+  z-index: 50;
   width: 12px;
   height: 14px;
   border-radius: 50% 50% 50% 50% / 58% 58% 42% 42%;
   background: radial-gradient(circle at 35% 30%, #e0f2fe 0 18%, #38bdf8 40%, #0369a1 100%);
   box-shadow: 0 1px 2px rgba(3, 105, 161, 0.4);
-  transform: translate(-50%, 50%);
+  transform: translate(-50%, -50%);
   pointer-events: none;
 }
 
