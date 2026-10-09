@@ -721,6 +721,84 @@ header h1 {
   animation: wizz-soft 0.3s ease-in-out 3;
 }
 
+/* Bombe a eau (touche K) : un ballon bleu qui vole en tournant */
+.scene-char.throwing .scene-sprite {
+  animation: throw 0.3s ease-out;
+}
+
+@keyframes throw {
+  30% { transform: translateY(-4px) scale(1.05); }
+}
+
+.water-bomb {
+  position: absolute;
+  z-index: 3;
+  width: 12px;
+  height: 14px;
+  border-radius: 50% 50% 50% 50% / 58% 58% 42% 42%;
+  background: radial-gradient(circle at 35% 30%, #e0f2fe 0 18%, #38bdf8 40%, #0369a1 100%);
+  box-shadow: 0 1px 2px rgba(3, 105, 161, 0.4);
+  transform: translate(-50%, 50%);
+  pointer-events: none;
+}
+
+.water-bomb::after {
+  content: "";
+  position: absolute;
+  top: -3px;
+  left: 4px;
+  width: 4px;
+  height: 4px;
+  border-radius: 1px;
+  background: #0369a1;
+}
+
+.water-splash {
+  position: absolute;
+  z-index: 3;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.water-splash::before {
+  content: "";
+  position: absolute;
+  left: -14px;
+  top: -6px;
+  width: 28px;
+  height: 12px;
+  border: 2px solid #38bdf8;
+  border-radius: 50%;
+  animation: splash-ring 0.5s ease-out forwards;
+}
+
+.water-splash span {
+  position: absolute;
+  left: -3px;
+  top: -3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #38bdf8;
+  animation: splash-drop 0.6s ease-out forwards;
+}
+
+@keyframes splash-ring {
+  from { transform: scale(0.3); opacity: 1; }
+  to { transform: scale(1.8); opacity: 0; }
+}
+
+@keyframes splash-drop {
+  from { transform: translate(0, 0) scale(1); opacity: 1; }
+  to { transform: translate(var(--dx), var(--dy)) scale(0.4); opacity: 0; }
+}
+
+.scene-char.soaked .scene-sprite {
+  filter: sepia(1) hue-rotate(170deg) saturate(3) brightness(0.95);
+  transition: filter 0.2s;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .room-scene, .scene-char { animation: none; }
   .scene-char { transition: none; }

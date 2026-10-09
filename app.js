@@ -431,6 +431,15 @@ function listenToUsers() {
       }
     });
 
+    // Une bombe a eau lancee par quelqu'un d'autre : on la voit voler
+    Object.entries(users).forEach(([id, u]) => {
+      const ts = (u.bomb && u.bomb.ts) || 0;
+      if (!(id in bombSeen)) { bombSeen[id] = ts; return; } // deja la avant nous
+      if (ts === bombSeen[id]) return;
+      bombSeen[id] = ts;
+      if (id !== myId && ts && roomIdOf(u)) animateBomb(roomIdOf(u), id, u.bomb, false);
+    });
+
     // Les places dans les salons changent jusqu'a 8 fois par seconde par
     // personne : on ne refait le travail de presence que s'il a vraiment change.
     const signature = Object.entries(users)
@@ -1379,6 +1388,10 @@ function typingInField(e) {
 
 document.addEventListener("keydown", (e) => {
   if (!myRoom || myX === null || typingInField(e)) return;
+  if (e.key === "k" || e.key === "K") {
+    if (!e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey) throwBomb();
+    return;
+  }
   const key = e.key === "ArrowLeft" ? "left" : e.key === "ArrowRight" ? "right" : null;
   if (!key) return;
   e.preventDefault();
@@ -1596,6 +1609,109 @@ function shakeCharacter(id) {
   });
 }
 
+// ---- Bombes a eau ----
+// K : mon personnage lance une bombe a eau vers le plus proche dans la
+// direction ou il regarde. Elle decrit un arc, retombe sur sa tete, eclate,
+// et lui envoie un wizz (avec les memes regles : pas d'Occupe, 10 s entre
+// deux wizz). Le lancer est publie dans users/{id}/bomb pour que tout le
+// salon la voie voler ; seul le lanceur envoie le wizz.
+const BOMB_COOLDOWN_MS = 700;
+const BOMB_HAND_Y = 30;        // depart : a hauteur de main (px depuis le bas de la bande)
+const BOMB_HEAD_Y = 52;        // arrivee : sur la tete
+const BOMB_FLOOR_Y = 8;        // personne en face : elle s'ecrase au sol
+const BOMB_MISS_DIST = 22;
+const bombSeen = {};           // id -> dernier ts de lancer observe
+let lastBombAt = 0;
+
+// Le plus proche devant moi, sinon le plus proche tout court
+function bombTarget() {
+  const others = roomPeers().map((id) => ({ id, x: remoteX(id) }));
+  const ahead = others.filter((o) => myDir === 1 ? o.x < myX : myDir === 2 ? o.x > myX : true);
+  const pool = ahead.length ? ahead : others;
+  pool.sort((a, b) => Math.abs(a.x - myX) - Math.abs(b.x - myX));
+  return pool[0] || null;
+}
+
+function throwBomb() {
+  if (!myRoom || myX === null) return;
+  if (Date.now() - lastBombAt < BOMB_COOLDOWN_MS) return;
+  lastBombAt = Date.now();
+  const target = bombTarget();
+  const bomb = {
+    from: Math.round(myX * 10) / 10,
+    to: target ? Math.round(target.x * 10) / 10 : clampX(myX + (myDir === 1 ? -1 : 1) * BOMB_MISS_DIST),
+    target: target ? target.id : null,
+    ts: firebase.database.ServerValue.TIMESTAMP,
+  };
+  db.ref(`users/${myId}/bomb`).set(bomb);
+  animateBomb(myRoom.id, myId, bomb, true);
+}
+
+function animateBomb(roomId, throwerId, bomb, mine) {
+  const scene = scenes.get(roomId);
+  if (!scene || typeof bomb.from !== "number" || typeof bomb.to !== "number") return;
+  const thrower = scene.chars.get(throwerId);
+  if (thrower) {
+    thrower.el.classList.remove("throwing");
+    void thrower.el.offsetWidth;
+    thrower.el.classList.add("throwing");
+    setTimeout(() => thrower.el.classList.remove("throwing"), 300);
+  }
+  const hit = !!bomb.target && scene.chars.has(bomb.target);
+  const el = document.createElement("div");
+  el.className = "water-bomb";
+  scene.el.appendChild(el);
+  const width = scene.el.clientWidth || 300;
+  const distPx = Math.abs(bomb.to - bomb.from) / 100 * width;
+  const duration = Math.min(1100, 420 + distPx * 1.6);
+  const y0 = BOMB_HAND_Y, y1 = hit ? BOMB_HEAD_Y : BOMB_FLOOR_Y;
+  const peak = Math.min(70, 28 + distPx * 0.25);
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const start = performance.now();
+  const frame = (now) => {
+    if (!el.isConnected) return; // la bande a disparu (salon vide, on est parti)
+    const t = Math.min(1, (now - start) / duration);
+    // Monte puis retombe : a la fin elle descend sur la tete de la cible
+    const y = y0 + (y1 - y0) * t + 4 * peak * t * (1 - t);
+    el.style.left = `${bomb.from + (bomb.to - bomb.from) * t}%`;
+    el.style.bottom = `${y}px`;
+    if (!reduced) el.style.transform = `translate(-50%, 50%) rotate(${(bomb.to > bomb.from ? 1 : -1) * t * 540}deg)`;
+    if (t < 1) { requestAnimationFrame(frame); return; }
+    el.remove();
+    splashBomb(scene, bomb.to, y1);
+    if (hit) soakCharacter(scene, bomb.target);
+    if (mine && hit) sendWizz(bomb.target);
+  };
+  requestAnimationFrame(frame);
+}
+
+function splashBomb(scene, x, y) {
+  const el = document.createElement("div");
+  el.className = "water-splash";
+  el.style.left = `${x}%`;
+  el.style.bottom = `${y}px`;
+  for (let i = 0; i < 8; i++) {
+    const drop = document.createElement("span");
+    const a = (Math.PI * 2 * i) / 8 + Math.random() * 0.4;
+    const r = 16 + Math.random() * 12;
+    drop.style.setProperty("--dx", `${Math.cos(a) * r}px`);
+    drop.style.setProperty("--dy", `${Math.sin(a) * r * 0.7 + 10}px`);
+    el.appendChild(drop);
+  }
+  scene.el.appendChild(el);
+  setTimeout(() => el.remove(), 700);
+}
+
+// Il est trempe : un petit moment tout bleu
+function soakCharacter(scene, id) {
+  const c = scene.chars.get(id);
+  if (!c) return;
+  c.el.classList.remove("soaked");
+  void c.el.offsetWidth;
+  c.el.classList.add("soaked");
+  setTimeout(() => c.el.classList.remove("soaked"), 1300);
+}
+
 function updateGroupStatus() {
   if (!appEntered) return;
   if (!myRoom) {
@@ -1606,7 +1722,7 @@ function updateGroupStatus() {
   const others = roomPeers().map(nameOf);
   groupStatusEl.textContent = (others.length
     ? `${myRoom.name} : avec ${others.join(", ")}` + (isMuted ? " (micro coupe, clique sur le micro pour parler)" : "")
-    : `${myRoom.name} : seul(e) pour l'instant`) + " · fleches ← → pour bouger";
+    : `${myRoom.name} : seul(e) pour l'instant`) + " · fleches ← → pour bouger, K pour une bombe a eau";
   groupStatusEl.classList.toggle("active", others.length > 0);
 }
 

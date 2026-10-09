@@ -53,6 +53,8 @@ Deux cabines vitrées contre le mur est, au-dessus de la cuisine. Un clic sur un
 
 Cliquer sur quelqu'un d'occupé te fait marcher jusqu'à devant sa cabine. Là, un clic sur la cabine la **secoue** : c'est le wizz, comme sur MSN. Son écran tremble, un buzz, une notification, et sa cabine tremble sur toutes les cartes. Le wizz marche aussi sur les gens hors pod (bouton « Wizz » sous chaque personne, dans le bureau comme dans le hall), sauf sur les gens en statut Occupé, dix secondes minimum entre deux wizz vers la même personne. Dans un pod, on peut toujours te secouer.
 
+Dans un salon, **K lance une bombe à eau** : ton personnage la jette vers le plus proche dans la direction où il regarde (sinon le plus proche tout court), elle retombe sur sa tête, éclate, il devient tout bleu un instant et ça lui envoie un wizz (mêmes règles : pas sur les Occupés, dix secondes entre deux wizz). Tout le salon voit la bombe voler. Seul dans le salon, elle s'écrase par terre.
+
 Un seul onglet HiSam à la fois par navigateur : si un autre est déjà ouvert, un bouton « Utiliser cet onglet » permet de continuer ici, l'autre onglet se retire.
 
 ## Fichiers
