@@ -1375,7 +1375,7 @@ function walkFrame(now) {
 }
 
 function startWalking() {
-  if (walkRaf || !myRoom || myX === null) return;
+  if (walkRaf || leap || !myRoom || myX === null) return;
   walkLast = 0;
   walkRaf = requestAnimationFrame(walkFrame);
 }
@@ -1627,17 +1627,57 @@ function shakeCharacter(id) {
 
 // ---- Saut ----
 // Espace : mon personnage se leve et saute. Publie dans users/{id}/jump pour
-// que tout le monde le voie.
+// que tout le monde le voie. En marchant, ou tourne vers quelqu'un, c'est un
+// bond vers l'avant qui passe par-dessus les gens : on retombe sur la
+// premiere place libre derriere eux. Pas de place : on saute sur place.
 const JUMP_MS = 480;
+const JUMP_DIST = 2 * SCENE_GAP + 2;   // assez pour enjamber quelqu'un colle a soi
 const jumpSeen = {};           // id -> dernier saut observe
 let lastJumpAt = 0;
+let leap = null;               // bond en cours : { from, to, start }
+
+// Premiere place libre a partir de x en avancant dans dir, ou null
+function landingSpot(x, dir) {
+  const others = othersInMyRoom().sort((a, b) => dir * (a - b));
+  let spot = x;
+  others.forEach((o) => {
+    if (Math.abs(o - spot) < SCENE_GAP) spot = o + dir * SCENE_GAP;
+  });
+  return clampX(spot) === spot ? spot : null;
+}
 
 function jump() {
   if (!myRoom || myX === null) return;
   if (Date.now() - lastJumpAt < JUMP_MS) return;
   lastJumpAt = Date.now();
+  // En marchant on bondit toujours ; a l'arret, seulement si quelqu'un est
+  // juste devant (sinon on saute sur place)
+  const facing = myDir === 1 ? -1 : myDir === 2 ? 1 : 0;
+  const blocker = facing && othersInMyRoom().some((o) => facing * (o - myX) > 0 && facing * (o - myX) <= SCENE_GAP + 3);
+  const dir = walkDirection() || (blocker ? facing : 0);
+  const to = dir ? landingSpot(clampX(myX + dir * JUMP_DIST), dir) : null;
+  if (to !== null && Math.abs(to - myX) > 0.5) {
+    if (walkRaf) cancelAnimationFrame(walkRaf); // le bond prend la main, les touches restent tenues
+    walkRaf = null;
+    walkTarget = null;
+    myDir = dir < 0 ? 1 : 2;
+    leap = { from: myX, to, start: performance.now() };
+    requestAnimationFrame(leapFrame);
+  }
   db.ref(`users/${myId}/jump`).set(firebase.database.ServerValue.TIMESTAMP);
   jumpCharacter(myId);
+}
+
+function leapFrame(now) {
+  if (!leap) return;
+  if (!myRoom || myX === null) { leap = null; return; }
+  const t = Math.min(1, (now - leap.start) / JUMP_MS);
+  myX = leap.from + (leap.to - leap.from) * t;
+  publishRoomX(t === 1);
+  updateScenes();
+  if (t < 1) { requestAnimationFrame(leapFrame); return; }
+  leap = null;
+  if (walkDirection()) startWalking(); // fleche toujours tenue : on repart en marchant
 }
 
 function jumpCharacter(id) {
