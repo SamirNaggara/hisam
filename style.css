@@ -721,6 +721,17 @@ header h1 {
   animation: wizz-soft 0.3s ease-in-out 3;
 }
 
+/* Saut (espace) : "translate" se cumule avec le transform qui centre le personnage */
+.scene-char.jumping {
+  animation: jump 0.48s ease-out;
+}
+
+@keyframes jump {
+  0%, 100% { translate: 0 0; animation-timing-function: ease-out; }
+  45% { translate: 0 -22px; animation-timing-function: ease-in; }
+  85% { translate: 0 1px; }
+}
+
 /* Bombe a eau (touche K) : un ballon bleu qui vole en tournant */
 .scene-char.throwing .scene-sprite {
   animation: throw 0.3s ease-out;

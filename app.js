@@ -440,6 +440,15 @@ function listenToUsers() {
       if (id !== myId && ts && roomIdOf(u)) animateBomb(roomIdOf(u), id, u.bomb, false);
     });
 
+    // Quelqu'un saute (espace) : on le voit sauter
+    Object.entries(users).forEach(([id, u]) => {
+      const ts = u.jump || 0;
+      if (!(id in jumpSeen)) { jumpSeen[id] = ts; return; }
+      if (ts === jumpSeen[id]) return;
+      jumpSeen[id] = ts;
+      if (id !== myId && ts) jumpCharacter(id);
+    });
+
     // Les places dans les salons changent jusqu'a 8 fois par seconde par
     // personne : on ne refait le travail de presence que s'il a vraiment change.
     const signature = Object.entries(users)
@@ -1392,6 +1401,11 @@ document.addEventListener("keydown", (e) => {
     if (!e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey) throwBomb();
     return;
   }
+  if (e.key === " ") {
+    e.preventDefault(); // ni defilement, ni clic sur le bouton qui a le focus
+    if (!e.repeat) jump();
+    return;
+  }
   const key = e.key === "ArrowLeft" ? "left" : e.key === "ArrowRight" ? "right" : null;
   if (!key) return;
   e.preventDefault();
@@ -1521,10 +1535,12 @@ function updateScene(scene) {
 // derriere son ordinateur portable, et il tape (les mains montent et descendent).
 function drawCharacterFrame(c, now) {
   const meta = World.characterMeta();
-  const moving = now < c.movingUntil;
+  const walking = now < c.movingUntil;
+  const jumping = now < (c.jumpUntil || 0);
+  const moving = walking || jumping; // en saut, debout : il quitte son bureau
   const cycle = meta.walkCycle || [1, 0, 2, 0];
-  const frame = moving ? cycle[Math.floor(now / (1000 / (meta.fps || 8))) % cycle.length] : 0;
-  const dir = moving ? c.dir : 0;
+  const frame = walking ? cycle[Math.floor(now / (1000 / (meta.fps || 8))) % cycle.length] : jumping ? 1 : 0;
+  const dir = walking ? c.dir : 0;
   const typing = moving ? -1 : Math.floor(now / TYPING_MS) % 2;
   const key = `${c.variant}:${dir}:${frame}:${typing}`;
   if (key === c.drawn) return;
@@ -1606,6 +1622,34 @@ function shakeCharacter(id) {
     void c.el.offsetWidth; // relance l'animation si elle tournait deja
     c.el.classList.add("shake");
     setTimeout(() => c.el.classList.remove("shake"), 900);
+  });
+}
+
+// ---- Saut ----
+// Espace : mon personnage se leve et saute. Publie dans users/{id}/jump pour
+// que tout le monde le voie.
+const JUMP_MS = 480;
+const jumpSeen = {};           // id -> dernier saut observe
+let lastJumpAt = 0;
+
+function jump() {
+  if (!myRoom || myX === null) return;
+  if (Date.now() - lastJumpAt < JUMP_MS) return;
+  lastJumpAt = Date.now();
+  db.ref(`users/${myId}/jump`).set(firebase.database.ServerValue.TIMESTAMP);
+  jumpCharacter(myId);
+}
+
+function jumpCharacter(id) {
+  scenes.forEach((scene) => {
+    const c = scene.chars.get(id);
+    if (!c) return;
+    c.jumpUntil = performance.now() + JUMP_MS;
+    drawCharacterFrame(c, performance.now());
+    c.el.classList.remove("jumping");
+    void c.el.offsetWidth; // relance l'animation si elle tournait deja
+    c.el.classList.add("jumping");
+    setTimeout(() => c.el.classList.remove("jumping"), JUMP_MS);
   });
 }
 
@@ -1764,7 +1808,7 @@ function updateGroupStatus() {
   const others = roomPeers().map(nameOf);
   groupStatusEl.textContent = (others.length
     ? `${myRoom.name} : avec ${others.join(", ")}` + (isMuted ? " (micro coupe, clique sur le micro pour parler)" : "")
-    : `${myRoom.name} : seul(e) pour l'instant`) + " · fleches ← → pour bouger, K pour une bombe a eau";
+    : `${myRoom.name} : seul(e) pour l'instant`) + " · fleches ← → pour bouger, espace pour sauter, K pour une bombe a eau";
   groupStatusEl.classList.toggle("active", others.length > 0);
 }
 
