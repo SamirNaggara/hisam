@@ -79,13 +79,15 @@ const peerConfig = {
   ],
   sdpSemantics: "unified-plan",
 };
+const ICE_FETCH_TIMEOUT_MS = 3000;
+let iceRefreshTimer = null;
 let localStream = null;   // flux envoye aux pairs (traite si possible)
 let rawMicStream = null;  // pistes du peripherique
 let micProcessing = null; // chaine de nettoyage { stream, destroy }
 let isMuted = true;       // on arrive micro coupe ; le flux envoye est alors silentStream()
 let silentAudioStream = null; // piste muette envoyee aux pairs tant que le micro est coupe
 let connections = {}; // peerId → MediaConnection
-const APP_VERSION = "salons-8";
+const APP_VERSION = "salons-9";
 const PEER_MAX_RECONNECT = 8;
 const RESYNC_INTERVAL_MS = 5000;
 let resyncTimer = null;
@@ -1870,9 +1872,6 @@ function speakingLevel(id) {
 }
 
 // ---- PeerJS (audio WebRTC) ----
-const ICE_FETCH_TIMEOUT_MS = 3000;
-let iceRefreshTimer = null;
-
 // Recupere des identifiants TURN frais ; en cas d'echec on garde les precedents
 // (ou ceux de PeerJS) plutot que de bloquer l'entree dans HiSam.
 function loadIceServers() {
