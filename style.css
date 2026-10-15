@@ -732,7 +732,7 @@ header h1 {
   85% { translate: 0 1px; }
 }
 
-/* Bombe a eau (touche K) : un ballon bleu qui vole en tournant */
+/* Bombe a eau (touche K) : un ballon arc-en-ciel qui vole en tournant */
 .scene-char.throwing .scene-sprite {
   animation: throw 0.3s ease-out;
 }
@@ -744,11 +744,13 @@ header h1 {
 .water-bomb {
   position: fixed;
   z-index: 50;
-  width: 12px;
-  height: 14px;
+  width: 14px;
+  height: 16px;
   border-radius: 50% 50% 50% 50% / 58% 58% 42% 42%;
-  background: radial-gradient(circle at 35% 30%, #e0f2fe 0 18%, #38bdf8 40%, #0369a1 100%);
-  box-shadow: 0 1px 2px rgba(3, 105, 161, 0.4);
+  background:
+    radial-gradient(circle at 34% 28%, rgba(255, 255, 255, 0.95) 0 14%, rgba(255, 255, 255, 0) 32%),
+    conic-gradient(#ff1744, #ff9100, #ffea00, #00e676, #00b0ff, #651fff, #d500f9, #ff1744);
+  box-shadow: 0 0 6px rgba(213, 0, 249, 0.55), 0 1px 2px rgba(0, 0, 0, 0.25);
   transform: translate(-50%, -50%);
   pointer-events: none;
 }
@@ -757,11 +759,11 @@ header h1 {
   content: "";
   position: absolute;
   top: -3px;
-  left: 4px;
+  left: 5px;
   width: 4px;
   height: 4px;
   border-radius: 1px;
-  background: #0369a1;
+  background: #d500f9;
 }
 
 .water-splash {
@@ -779,7 +781,7 @@ header h1 {
   top: -6px;
   width: 28px;
   height: 12px;
-  border: 2px solid #38bdf8;
+  border: 2px solid var(--ring, #00b0ff);
   border-radius: 50%;
   animation: splash-ring 0.5s ease-out forwards;
 }
@@ -791,7 +793,7 @@ header h1 {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #38bdf8;
+  background: var(--drop, #38bdf8);
   animation: splash-drop 0.6s ease-out forwards;
 }
 

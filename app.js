@@ -87,7 +87,7 @@ let micProcessing = null; // chaine de nettoyage { stream, destroy }
 let isMuted = true;       // on arrive micro coupe ; le flux envoye est alors silentStream()
 let silentAudioStream = null; // piste muette envoyee aux pairs tant que le micro est coupe
 let connections = {}; // peerId → MediaConnection
-const APP_VERSION = "salons-10";
+const APP_VERSION = "salons-11";
 const PEER_MAX_RECONNECT = 8;
 const RESYNC_INTERVAL_MS = 5000;
 let resyncTimer = null;
@@ -1829,8 +1829,12 @@ function splashBomb(scene, x, y) {
   el.className = "water-splash";
   el.style.left = `${x}%`;
   el.style.bottom = `${y}px`;
+  // Gouttes arc-en-ciel, comme le ballon : une teinte par goutte, depart au hasard
+  const hue0 = Math.random() * 360;
+  el.style.setProperty("--ring", `hsl(${Math.round(hue0)} 100% 55%)`);
   for (let i = 0; i < 8; i++) {
     const drop = document.createElement("span");
+    drop.style.setProperty("--drop", `hsl(${Math.round(hue0 + i * 45) % 360} 100% 55%)`);
     const a = (Math.PI * 2 * i) / 8 + Math.random() * 0.4;
     const r = 16 + Math.random() * 12;
     drop.style.setProperty("--dx", `${Math.cos(a) * r}px`);
