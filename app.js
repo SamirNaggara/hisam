@@ -87,7 +87,7 @@ let micProcessing = null; // chaine de nettoyage { stream, destroy }
 let isMuted = true;       // on arrive micro coupe ; le flux envoye est alors silentStream()
 let silentAudioStream = null; // piste muette envoyee aux pairs tant que le micro est coupe
 let connections = {}; // peerId → MediaConnection
-const APP_VERSION = "salons-9";
+const APP_VERSION = "salons-10";
 const PEER_MAX_RECONNECT = 8;
 const RESYNC_INTERVAL_MS = 5000;
 let resyncTimer = null;
@@ -2812,6 +2812,10 @@ document.addEventListener("visibilitychange", () => {
 // il n'y a pas de console : une capture d'ecran suffit pour comprendre si le
 // son atteint l'encodeur (niveau source), part (paquets envoyes), arrive
 // (paquets recus) et est joue (element audio pas en pause, temps qui avance).
+// Sur ordinateur, le meme texte part aussi dans la console toutes les 5 s, pour
+// pouvoir le copier-coller.
+const DEBUG_CONSOLE_EVERY = 5; // en tours d'une seconde
+let debugTicks = 0;
 const debugOverlayEl = document.getElementById("debug-overlay");
 const debugPrev = {}; // id -> { sent, recv } du tour precedent, pour les debits
 function debugEnabled() {
@@ -2844,7 +2848,7 @@ async function debugTick() {
     const call = connections[id];
     const pc = call.peerConnection;
     const name = allUsers[id]?.name || id.slice(0, 8);
-    let sent = 0, recv = 0, srcLevel = null, inLevel = null, concealed = 0, sender = "-";
+    let sent = 0, recv = 0, srcLevel = null, inLevel = null, concealed = 0, sender = "-", route = "-";
     if (pc) {
       try {
         const stats = await pc.getStats();
@@ -2857,6 +2861,7 @@ async function debugTick() {
           }
           if (s.type === "media-source" && s.kind === "audio" && typeof s.audioLevel === "number") srcLevel = s.audioLevel;
         });
+        route = selectedRoute(stats);
       } catch (err) { /* stats indisponibles */ }
       const snd = pc.getSenders().find((x) => x.track && x.track.kind === "audio");
       if (snd) sender = `${snd.track.readyState}${snd.track === lt ? "" : " (PAS la piste locale)"}`;
@@ -2866,7 +2871,7 @@ async function debugTick() {
     const a = document.getElementById(`audio-${id}`);
     const ra = remoteAnalysers[id];
     lines.push(
-      `- ${name}: ${pc ? pc.connectionState + "/" + pc.iceConnectionState : "?"} ${call.open ? "ouvert" : "ferme"} ${call.__initiator === myId ? "(j'appelle)" : "(il appelle)"}\n` +
+      `- ${name}: ${pc ? pc.connectionState + "/" + pc.iceConnectionState : "?"} ${call.open ? "ouvert" : "ferme"} ${call.__initiator === myId ? "(j'appelle)" : "(il appelle)"} chemin=${route}\n` +
       `    envoi: piste=${sender} niveau_src=${srcLevel === null ? "-" : srcLevel.toFixed(2)} paquets=${sent} (+${sent - prev.sent}/s)\n` +
       `    recu: paquets=${recv} (+${recv - prev.recv}/s) niveau=${inLevel === null ? "-" : inLevel.toFixed(2)} masques=${concealed}` +
       ` analyseur=${ra ? getAudioLevel(ra.analyser).toFixed(2) : "-"}\n` +
@@ -2874,6 +2879,21 @@ async function debugTick() {
     );
   }
   debugOverlayEl.textContent = lines.join("\n");
+  if (debugTicks++ % DEBUG_CONSOLE_EVERY === 0) console.log("[HiSam] debug\n" + lines.join("\n"));
+}
+
+// Chemin de la paire ICE retenue : "direct" (host / srflx) ou "relais" (TURN)
+function selectedRoute(stats) {
+  let pair = null;
+  stats.forEach((s) => {
+    if (s.type === "transport" && s.selectedCandidatePairId) pair = stats.get(s.selectedCandidatePairId);
+  });
+  if (!pair) stats.forEach((s) => { if (s.type === "candidate-pair" && (s.selected || s.nominated) && s.state === "succeeded") pair = s; });
+  if (!pair) return "-";
+  const local = stats.get(pair.localCandidateId);
+  const remote = stats.get(pair.remoteCandidateId);
+  const relayed = [local, remote].some((c) => c && c.candidateType === "relay");
+  return `${relayed ? "relais" : "direct"} (${local ? local.candidateType : "?"}/${remote ? remote.candidateType : "?"}${local && local.protocol ? " " + local.protocol : ""})`;
 }
 if (debugEnabled()) {
   debugOverlayEl.style.display = "";
