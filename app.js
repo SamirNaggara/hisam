@@ -68,13 +68,24 @@ if (!myId) {
 let myName = localStorage.getItem("hisam-name") || "";
 let myAvatar = null;
 let peer = null;
+// Serveurs ICE partages par tous les appels : PeerJS relit cet objet a chaque
+// RTCPeerConnection, on peut donc remplacer les identifiants TURN en place.
+// Par defaut ceux de PeerJS (publics, souvent en panne), remplaces au demarrage
+// par des identifiants Cloudflare servis par /api/turn.
+const peerConfig = {
+  iceServers: [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: ["turn:eu-0.turn.peerjs.com:3478", "turn:us-0.turn.peerjs.com:3478"], username: "peerjs", credential: "peerjsp" },
+  ],
+  sdpSemantics: "unified-plan",
+};
 let localStream = null;   // flux envoye aux pairs (traite si possible)
 let rawMicStream = null;  // pistes du peripherique
 let micProcessing = null; // chaine de nettoyage { stream, destroy }
 let isMuted = true;       // on arrive micro coupe ; le flux envoye est alors silentStream()
 let silentAudioStream = null; // piste muette envoyee aux pairs tant que le micro est coupe
 let connections = {}; // peerId → MediaConnection
-const APP_VERSION = "salons-7";
+const APP_VERSION = "salons-8";
 const PEER_MAX_RECONNECT = 8;
 const RESYNC_INTERVAL_MS = 5000;
 let resyncTimer = null;
@@ -246,7 +257,7 @@ function startApp() {
     showOverlay("<p><strong>La brique audio n'a pas pu etre chargee.</strong></p>" +
       "<p>unpkg.com est peut-etre bloque par le reseau. Les salons restent visibles, mais sans la voix.</p>");
   } else {
-    setupPeer();
+    loadIceServers().finally(setupPeer);
   }
   listenToUsers();
   listenToRooms();
@@ -1859,8 +1870,30 @@ function speakingLevel(id) {
 }
 
 // ---- PeerJS (audio WebRTC) ----
+const ICE_FETCH_TIMEOUT_MS = 3000;
+let iceRefreshTimer = null;
+
+// Recupere des identifiants TURN frais ; en cas d'echec on garde les precedents
+// (ou ceux de PeerJS) plutot que de bloquer l'entree dans HiSam.
+function loadIceServers() {
+  const ctrl = new AbortController();
+  const timeout = setTimeout(() => ctrl.abort(), ICE_FETCH_TIMEOUT_MS);
+  return fetch("/api/turn", { signal: ctrl.signal })
+    .then((r) => (r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status))))
+    .then(({ iceServers, ttl }) => {
+      if (!Array.isArray(iceServers) || !iceServers.length) throw new Error("reponse vide");
+      peerConfig.iceServers = iceServers;
+      console.log("[HiSam] Serveurs TURN Cloudflare charges");
+      // On renouvelle a mi-vie pour que les appels suivants aient des identifiants valides
+      clearTimeout(iceRefreshTimer);
+      iceRefreshTimer = setTimeout(loadIceServers, (ttl || 86400) * 500);
+    })
+    .catch((err) => console.warn("[HiSam] TURN Cloudflare indisponible, serveurs PeerJS par defaut:", err.message))
+    .finally(() => clearTimeout(timeout));
+}
+
 function setupPeer() {
-  peer = new Peer(myId, { debug: 0 });
+  peer = new Peer(myId, { debug: 0, config: peerConfig });
 
   peer.on("open", () => {
     console.log("[HiSam] PeerJS connecte:", peer.id);
